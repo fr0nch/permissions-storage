@@ -1,0 +1,114 @@
+# Unique identifier of the server.
+# - If set to 0, the plugin will operate on all available servers.
+#   This allows for global operations without specifying a single server.
+# - Note: This parameter is ignored when using SQLite storage,
+#   since SQLite does not support multi-server separation in a single database.
+server_id: 0
+
+# Determines whether to use a global cookie shared across all servers, rather than individual server-specific cookies.
+# - Useful for synchronizing user sessions or settings globally.
+# - Note: This setting has no effect with SQLite storage.
+global_cookie: false
+
+# Automatically removes records from the database once the associated permissions or groups have expired.
+# - Helps keep the database clean and ensures outdated entries do not persist.
+delete_expired_records: false
+
+# Automatically deletes database records when permissions or groups are manually removed from a player.
+# - Ensures database consistency and prevents orphaned entries.
+delete_removed_records: false
+
+# How the plugin should store data
+#  
+# - Possible options:
+#  
+#   |  Remote databases - require connection information to be configured below
+#   |=> MySQL/MariaDB (mysql)
+#   |=> PostgreSQL (postgres)
+#  
+#   |  Flatfile/local database - don't require any extra configuration
+#   |=> SQLite (sqlite3)
+#  
+# - A SQLite database is the default option.
+storage_method: sqlite3
+
+# The following block defines the settings for remote database storage methods.
+#  
+# - You don't need to touch any of the settings here if you're using a local storage method!
+# - The connection detail options are shared between all remote storage types.
+data:
+    # Define the host and port for the database.
+    # - The standard DB engine port is used by default
+    #   (MySQL: 3306, PostgreSQL: 5432)
+    host: ""
+    port: 3306
+    
+    # Credentials for the database.
+    username: ""
+    password: ""
+    
+    # These settings apply to the database connection pool.
+    # - The default values will be suitable for the majority of users.
+    # - Do not change these settings unless you know what you're doing!
+    pool_settings:
+        # Sets the maximum size of the MySQL connection pool.
+        # - Basically this value will determine the maximum number of actual
+        #   connections to the database backend.
+        # - More information about determining the size of connection pools can be found here:
+        #   https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing
+        maximum_pool_size: 25
+        
+        # Sets the maximum number of idle connections in the pool.
+        # - The pool will not keep more than this number of idle connections, but may keep fewer.
+        # - Setting this value equal to 'maximum_pool_size' makes the pool behave closer to a fixed-size pool and can improve performance under sudden load spikes.
+        maximum_idle: 5
+        
+        # This setting controls the maximum lifetime of a connection in the pool in seconds.
+        # - The value should be at least 30 seconds less than any database or infrastructure imposed
+        #   connection time limit.
+        maximum_lifetime: 1800 # 30 minutes
+        
+        # This setting controls the maximum idle lifetime of a connection in the pool in seconds.
+        # - Idle connections that exceed this duration will be closed and removed from the pool.
+        # - This helps to prevent resource waste by closing unused connections and ensures that stale
+        #   connections (which may have been dropped by the server or firewall) are not reused.
+        # - Recommended value: 2-5 minutes (120-300 seconds).
+        # - Set this value to 0 to disable idle connection timeout (not recommended for production).
+        maximum_idle_lifetime: 300
+    
+    # The name of the database to store Plugify Permissions data in.
+    database: ""
+    
+    # PostgreSQL schema (namespace for tables)
+    # - Only used when using PostgreSQL storage. Ignored for MySQL and SQLite.
+    # - Default: public
+    # - Set this to separate plugin data inside one database
+    schema: ""
+    
+    # This setting allows you to define additional DSN parameters for the database connection.
+    #  
+    # By default for MySQL, the following options are applied automatically:
+    #  - parseTime=true    : ensures proper parsing of DATE/TIME columns into time values
+    #  - loc=Local         : sets the timezone for time values to the local system timezone
+    #  
+    # Optional parameters you may want to include:
+    #  - sslmode=disable   : for PostgreSQL, disables SSL (only if you understand the security implications)
+    #  - _journal_mode=WAL : for SQLite, enables WAL mode for better concurrency
+    #  - busy_timeout=5000 : for SQLite, sets a timeout for database locks (milliseconds)
+    #  
+    # Additional MySQL options you might set if needed:
+    #  - collation=utf8mb4_general_ci : ensure full UTF-8 support including emojis
+    #  - timeout=5s                  : set connection timeout
+    #  
+    # Example usage:
+    # params:
+    #  sslmode: disable
+    #  _journal_mode: WAL
+    #  busy_timeout: 5000
+    params: {}
+    
+    # The prefix for all Plugify Permissions SQL tables.
+    #  
+    # - This only applies for remote SQL storage types (MySQL, MariaDB, etc).
+    # - Change this if you want to use different tables for different servers.
+    table_prefix: perms_
