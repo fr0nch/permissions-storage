@@ -658,7 +658,7 @@ func (p *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 		permissions = append(permissions, permission)
 	}
 
-	p.log.Debugf("Loaded %d manager\n", len(permissions))
+	p.log.Debugf("Loaded %d permissions\n", len(permissions))
 
 	return permissions, rows.Err()
 }
