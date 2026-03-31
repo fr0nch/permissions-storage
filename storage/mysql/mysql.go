@@ -622,7 +622,7 @@ func (p *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 			permission,
 			expires
 		FROM server_user_permissions 
-		WHERE steamid64 = ? AND server_id = ? AND (expires IS NULL OR expires = 0) OR (expires > CURRENT_TIMESTAMP())
+		WHERE steamid64 = ? AND server_id = ? AND (expires IS NULL OR expires = 0 OR expires > CURRENT_TIMESTAMP())
 	`
 
 	rows, err := tx.QueryContext(ctx, query, UserID, serverID)

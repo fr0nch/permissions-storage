@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS groups (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     priority INTEGER NOT NULL DEFAULT 0,
-    inheritance_id INTEGER DEFAULT NULL REFERENCES groups(id) ON DELETE SET NULL
+    inheritance_id INTEGER DEFAULT NULL REFERENCES groups(id) ON DELETE SET NULL,
+    CHECK (TRIM(name) <> '')
 );
 
 CREATE INDEX idx_groups_inheritance_id ON groups(inheritance_id);
@@ -30,7 +31,8 @@ CREATE TABLE IF NOT EXISTS group_options (
     option_value TEXT DEFAULT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(group_id, option_key)
+    UNIQUE(group_id, option_key),
+    CHECK (TRIM(option_key) <> '')
 );
 
 CREATE INDEX idx_group_options_group_id ON group_options(group_id);
@@ -45,7 +47,8 @@ CREATE TABLE IF NOT EXISTS group_permissions (
     id SERIAL PRIMARY KEY,
     group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     permission VARCHAR(255) NOT NULL,
-    UNIQUE(group_id, permission)
+    UNIQUE(group_id, permission),
+    CHECK (TRIM(permission) <> '')
 );
 
 CREATE INDEX idx_group_permissions_group_id ON group_permissions(group_id);
@@ -82,6 +85,10 @@ CREATE TABLE IF NOT EXISTS server_groups (
 
 CREATE INDEX idx_server_groups_server_id ON server_groups(server_id);
 CREATE INDEX idx_server_groups_group_id ON server_groups(group_id);
+
+INSERT INTO groups (id, name, priority, inheritance_id) VALUES (1, 'Default', 0, null);
+INSERT INTO servers (id, name, address, default_group) VALUES (0, 'All Servers', null, 1);
+INSERT INTO server_groups (id, server_id, group_id) VALUES (1, 0, 1);
 
 CREATE TABLE IF NOT EXISTS server_user_groups (
     id SERIAL PRIMARY KEY,
@@ -132,7 +139,8 @@ CREATE TABLE IF NOT EXISTS user_cookies (
     option_value TEXT DEFAULT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(steamid64, server_id, option_key)
+    UNIQUE(steamid64, server_id, option_key),
+    CHECK (TRIM(option_key) <> '')
 );
 
 CREATE INDEX idx_user_cookies_servers ON user_cookies(server_id);

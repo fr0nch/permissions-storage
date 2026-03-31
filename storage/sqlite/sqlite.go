@@ -141,6 +141,10 @@ func (p *Storage) CreateTables(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_server_groups_server_id ON server_groups(server_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_server_groups_group_id ON server_groups(group_id);`,
 
+		`INSERT OR IGNORE INTO groups (id, name, priority, inheritance_id) VALUES (1, 'Default', 0, NULL);`,
+		`INSERT OR IGNORE INTO servers (id, name, address, default_group) VALUES (0, 'All Servers', NULL, 1);`,
+		`INSERT OR IGNORE INTO server_groups (id, server_id, group_id) VALUES (1, 0, 1);`,
+
 		`CREATE TABLE IF NOT EXISTS server_user_groups (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			steamid64 INTEGER NOT NULL,
@@ -325,7 +329,7 @@ func (p *Storage) AddPermission(ctx context.Context, userID model.UserID, permis
 			ON CONFLICT(steamid64, server_id, permission)
 			DO UPDATE SET expires = ?, updated = CURRENT_TIMESTAMP`
 
-	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, permission.Permission, permission.Expires, permission.Expires)
+	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, permission.Permission, permission.Expires.UTC(), permission.Expires.UTC())
 	if err != nil {
 		return fmt.Errorf("could not add permission: %w", err)
 	}
@@ -364,7 +368,7 @@ func (p *Storage) AddGroup(ctx context.Context, userID model.UserID, group *mode
 			ON CONFLICT(steamid64, server_id, group_id)
 			DO UPDATE SET expires = ?, updated = CURRENT_TIMESTAMP`
 
-	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, group.GroupID, group.Expires, group.Expires)
+	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, group.GroupID, group.Expires.UTC(), group.Expires.UTC())
 	if err != nil {
 		return fmt.Errorf("could not add group: %w", err)
 	}
@@ -627,7 +631,7 @@ func (p *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 			permission,
 			expires
 		FROM server_user_permissions 
-		WHERE steamid64 = ? AND server_id = ? AND (expires IS NULL OR expires = 0) OR (expires > CURRENT_TIMESTAMP)
+		WHERE steamid64 = ? AND server_id = ? AND (expires IS NULL OR expires = 0 OR expires > CURRENT_TIMESTAMP)
 	`
 
 	rows, err := tx.QueryContext(ctx, query, UserID, serverID)
