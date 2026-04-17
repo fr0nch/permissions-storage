@@ -46,9 +46,9 @@ func init() {
 func (p *PermissionsStoragePlugin) OnPluginStart() {
 	var err error
 
-	p.log, err = logger.NewWithOptions(logger.Options{Folder: ""})
+	p.log, err = logger.NewWithOptions(logger.Options{Folder: "permissions"})
 	if err != nil {
-		panic(err.Error())
+		panic("Failed to initialize logger: " + err.Error())
 	}
 
 	p.config = config.NewConfig()
@@ -69,8 +69,7 @@ func (p *PermissionsStoragePlugin) OnPluginStart() {
 	)
 
 	if err != nil {
-		println(err.Error())
-		return
+		panic("Failed to initialize config: " + err.Error())
 	}
 
 	dsn := BuildDSN(p.config.Settings)
@@ -91,14 +90,9 @@ func (p *PermissionsStoragePlugin) OnPluginStart() {
 		panic("Failed to initialize storage: " + err.Error())
 	}
 
-	if p.storage == nil {
-		panic("Storage not initialized:\nDSN: " + dsn.String())
-	}
-
 	if dsn.Scheme == "file" {
 		if err = p.storage.CreateTables(context.Background()); err != nil {
-			p.log.Errorf("Failed to create tables: %v\n", err)
-			return
+			panic("Failed to create tables: " + err.Error())
 		}
 	}
 
@@ -130,7 +124,7 @@ func BuildDSN(settings *config.Settings) url.URL {
 		u.Path = settings.Data.Database
 
 		if _, ok := settings.Data.Params["loc"]; !ok {
-			values.Add("loc" /*time.Now().Location().String()*/, "UTC")
+			values.Add("loc", "UTC")
 		}
 
 		if _, ok := settings.Data.Params["parseTime"]; !ok {

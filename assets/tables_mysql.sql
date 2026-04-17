@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS perms_groups (
-                                            id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     name varchar(255) NOT NULL,
     priority int(11) NOT NULL DEFAULT 0,
     inheritance_id int(11) DEFAULT NULL,
@@ -7,10 +7,10 @@ CREATE TABLE IF NOT EXISTS perms_groups (
     KEY fk_groups_groups (inheritance_id),
     CONSTRAINT fk_groups_groups FOREIGN KEY (inheritance_id) REFERENCES perms_groups (id) ON DELETE SET NULL ON UPDATE NO ACTION,
     CONSTRAINT check_name CHECK (trim(name) <> '')
-    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS perms_group_options (
-                                                   id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     group_id int(11) NOT NULL,
     option_key varchar(255) NOT NULL,
     option_value longtext DEFAULT NULL,
@@ -22,10 +22,10 @@ CREATE TABLE IF NOT EXISTS perms_group_options (
     KEY option_key (option_key),
     CONSTRAINT fk_group_options_group FOREIGN KEY (group_id) REFERENCES perms_groups (id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT check_option_key CHECK (trim(option_key) <> '')
-    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS perms_group_permissions (
-                                                       id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     group_id int(11) NOT NULL,
     permission varchar(255) NOT NULL,
     PRIMARY KEY (id) USING BTREE,
@@ -34,29 +34,29 @@ CREATE TABLE IF NOT EXISTS perms_group_permissions (
     KEY permission (permission),
     CONSTRAINT fk_group_permissions_group FOREIGN KEY (group_id) REFERENCES perms_groups (id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT check_permission CHECK (trim(permission) <> '')
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS perms_users (
-                                           steamid64 bigint(20) NOT NULL,
+    steamid64 bigint(20) NOT NULL,
     name varchar(128) DEFAULT NULL,
     immunity int(11) NOT NULL DEFAULT 0,
     created_at timestamp NOT NULL DEFAULT current_timestamp(),
     lastvisit_at timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
     PRIMARY KEY (steamid64)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS perms_servers (
-                                             id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     name varchar(255) NOT NULL,
     address varchar(32) DEFAULT NULL,
     default_group int(11) DEFAULT NULL,
     PRIMARY KEY (id),
     KEY fk_server_default_group (default_group),
     CONSTRAINT fk_server_default_group FOREIGN KEY (default_group) REFERENCES perms_groups (id) ON DELETE SET NULL ON UPDATE NO ACTION
-    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS perms_server_groups (
-                                                   id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     server_id int(11) NOT NULL,
     group_id int(11) NOT NULL,
     PRIMARY KEY (id),
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS perms_server_groups (
     KEY group_id (group_id) USING BTREE,
     CONSTRAINT fk_server_groups_groups FOREIGN KEY (group_id) REFERENCES perms_groups (id) ON DELETE NO ACTION ON UPDATE NO ACTION,
     CONSTRAINT fk_server_groups_servers FOREIGN KEY (server_id) REFERENCES perms_servers (id) ON DELETE NO ACTION ON UPDATE NO ACTION
-    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 SET @OLD_SQL_MODE = @@sql_mode;
 
@@ -83,7 +83,7 @@ VALUES (1, 0, 1);
 SET sql_mode = @OLD_SQL_MODE;
 
 CREATE TABLE IF NOT EXISTS perms_server_user_groups (
-                                                        id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     steamid64 bigint(20) NOT NULL,
     server_id int(11) NOT NULL,
     group_id int(11) NOT NULL,
@@ -96,10 +96,10 @@ CREATE TABLE IF NOT EXISTS perms_server_user_groups (
     KEY fk_server_user_groups_server_groups (server_id,group_id),
     CONSTRAINT fk_server_user_groups_server_groups FOREIGN KEY (server_id, group_id) REFERENCES perms_server_groups (server_id, group_id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT fk_server_user_groups_steamid64 FOREIGN KEY (steamid64) REFERENCES perms_users (steamid64) ON DELETE CASCADE ON UPDATE NO ACTION
-    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS perms_server_user_permissions (
-                                                             id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     steamid64 bigint(20) NOT NULL,
     server_id int(11) NOT NULL,
     permission varchar(255) NOT NULL,
@@ -114,10 +114,10 @@ CREATE TABLE IF NOT EXISTS perms_server_user_permissions (
     CONSTRAINT fk_user_permissions_server FOREIGN KEY (server_id) REFERENCES perms_servers (id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT fk_user_permissions_steamid64 FOREIGN KEY (steamid64) REFERENCES perms_users (steamid64) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT check_permission CHECK (trim(permission) <> '')
-    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS perms_user_cookies (
-                                                  id int(11) NOT NULL AUTO_INCREMENT,
+    id int(11) NOT NULL AUTO_INCREMENT,
     steamid64 bigint(20) NOT NULL,
     server_id int(11) NOT NULL,
     option_key varchar(255) NOT NULL,
@@ -132,4 +132,4 @@ CREATE TABLE IF NOT EXISTS perms_user_cookies (
     CONSTRAINT fk_user_cookies_servers FOREIGN KEY (server_id) REFERENCES perms_servers (id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT fk_user_cookies_steamid64 FOREIGN KEY (steamid64) REFERENCES perms_users (steamid64) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT check_option_key CHECK (trim(option_key) <> '')
-    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

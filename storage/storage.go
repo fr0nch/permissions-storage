@@ -21,5 +21,7 @@ type Storage interface {
 
 	SetCookie(userID model.UserID, key string, value any)
 
+	WaitReady(ctx context.Context) error
+
 	Close()
 }

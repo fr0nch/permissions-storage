@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const contextTimeout = 15 * time.Second
+
 func (p *PermissionsStoragePlugin) RegisteringEvents() {
 	permissions.OnLoadUser_Register(p.OnLoadUser)
 	permissions.OnLoadGroups_Register(p.OnLoadGroups)
@@ -21,7 +23,15 @@ func (p *PermissionsStoragePlugin) RegisteringEvents() {
 
 func (p *PermissionsStoragePlugin) OnLoadUser(pluginID uint64, targetID uint64, username string) {
 	go func() {
-		user, err := p.storage.LoadUser(context.Background(), targetID, username)
+		ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+		defer cancel()
+
+		if err := p.storage.WaitReady(ctx); err != nil {
+			p.log.Errorf("Aborting LoadUser for %s[%d], DB not ready: %v", username, targetID, err)
+			return
+		}
+
+		user, err := p.storage.LoadUser(ctx, targetID, username)
 		if err != nil {
 			p.log.Errorf("Error loading user: %v", err)
 			return
@@ -31,7 +41,7 @@ func (p *PermissionsStoragePlugin) OnLoadUser(pluginID uint64, targetID uint64, 
 			user.Name = username
 		}
 
-		err = p.storage.UpdateUser(context.Background(), user)
+		err = p.storage.UpdateUser(ctx, user)
 		if err != nil {
 			p.log.Errorf("Error updating user: %v", err)
 		}
@@ -52,7 +62,7 @@ func (p *PermissionsStoragePlugin) OnLoadUser(pluginID uint64, targetID uint64, 
 					expires = user.Groups[i].Expires.Unix()
 				}
 
-				p.log.Debugf("AddGroup: \n\tName: '%s', \n\tExpires: %d(%v)", user.Groups[i].GroupName, expires, user.Groups[i].Expires)
+				p.log.Debugf("AddGroup: name='%s', expires=%d(%v)", user.Groups[i].GroupName, expires, user.Groups[i].Expires)
 				permissions.AddGroup(p.pluginID, targetID, user.Groups[i].GroupName, expires, true)
 			}
 		} else {
@@ -65,12 +75,12 @@ func (p *PermissionsStoragePlugin) OnLoadUser(pluginID uint64, targetID uint64, 
 				expires = user.Permissions[i].Expires.Unix()
 			}
 
-			p.log.Debugf("AddPermission: \n\tName: '%s', \n\tExpires: %d", user.Permissions[i].Permission, expires)
+			p.log.Debugf("AddPermission: name='%s', expires=%d", user.Permissions[i].Permission, expires)
 			permissions.AddPermission(p.pluginID, targetID, user.Permissions[i].Permission, expires, true)
 		}
 
 		for key, value := range user.Cookies {
-			p.log.Debugf("SetCookie: \n\tCookie: '%s', \n\tValue: '%s'", key, value)
+			p.log.Debugf("SetCookie: сookie='%s', value='%s'", key, value)
 			permissions.SetCookie(p.pluginID, targetID, key, value, true)
 		}
 
@@ -80,7 +90,15 @@ func (p *PermissionsStoragePlugin) OnLoadUser(pluginID uint64, targetID uint64, 
 
 func (p *PermissionsStoragePlugin) OnLoadGroups(pluginID uint64) {
 	go func() {
-		groups, defaultGroupID, err := p.storage.LoadGroups(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+		defer cancel()
+
+		if err := p.storage.WaitReady(ctx); err != nil {
+			p.log.Errorf("Aborting LoadGroups, DB not ready: %v", err)
+			return
+		}
+
+		groups, defaultGroupID, err := p.storage.LoadGroups(ctx)
 
 		p.log.Info("Loading groups from database.")
 
@@ -145,7 +163,7 @@ func (p *PermissionsStoragePlugin) OnLoadGroups(pluginID uint64) {
 				}
 			case permissions.Status_ParentGroupNotFound:
 				{
-					p.log.Warnf("Failed to set inheritance for group '%s' (parent group %s not found).\n", p.groups[i].Name, inheritanceName)
+					p.log.Warnf("Failed to set inheritance for group '%s' (parent group '%s' not found).\n", p.groups[i].Name, inheritanceName)
 					continue
 				}
 			}
@@ -163,14 +181,22 @@ func (p *PermissionsStoragePlugin) OnUserPermissionChange(pluginID uint64, actio
 	}
 
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+		defer cancel()
+
+		if err := p.storage.WaitReady(ctx); err != nil {
+			p.log.Errorf("Aborting UserPermissionChange [ %v | perm: '%s' | timestamp: %d ], DB not ready: %v", targetID, perm, timestamp, err)
+			return
+		}
+
 		permission := model.UserPermission{
 			Permission: perm,
 			Expires:    time.Unix(timestamp, 0),
 		}
 
 		switch action {
-		case permissions.Action_Add:
-			err := p.storage.AddPermission(context.Background(), targetID, &permission)
+		case permissions.Action_Add /*, permissions.Action_Set*/ :
+			err := p.storage.AddPermission(ctx, targetID, &permission)
 			if err != nil {
 				p.log.Errorf("Failed to add permission: %v", err)
 				return
@@ -180,7 +206,7 @@ func (p *PermissionsStoragePlugin) OnUserPermissionChange(pluginID uint64, actio
 				return
 			}
 
-			err := p.storage.RemovePermission(context.Background(), targetID, &permission)
+			err := p.storage.RemovePermission(ctx, targetID, &permission)
 			if err != nil {
 				p.log.Errorf("Failed to remove permission: %v", err)
 				return
@@ -196,14 +222,22 @@ func (p *PermissionsStoragePlugin) OnUserGroupChange(pluginID uint64, action per
 	}
 
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+		defer cancel()
+
+		if err := p.storage.WaitReady(ctx); err != nil {
+			p.log.Errorf("Aborting UserGroupChange [ %v | group: '%s' | timestamp: %d ], DB not ready: %v", targetID, group, timestamp, err)
+			return
+		}
+
 		_group := model.UserGroup{
 			GroupID: p.GetGroupIDByName(group),
 			Expires: time.Unix(timestamp, 0),
 		}
 
 		switch action {
-		case permissions.Action_Add:
-			err := p.storage.AddGroup(context.Background(), targetID, &_group)
+		case permissions.Action_Add /*, permissions.Action_Set*/ :
+			err := p.storage.AddGroup(ctx, targetID, &_group)
 			if err != nil {
 				p.log.Errorf("Failed to add group: %v", err)
 				return
@@ -213,7 +247,7 @@ func (p *PermissionsStoragePlugin) OnUserGroupChange(pluginID uint64, action per
 				return
 			}
 
-			err := p.storage.RemoveGroup(context.Background(), targetID, &_group)
+			err := p.storage.RemoveGroup(ctx, targetID, &_group)
 			if err != nil {
 				p.log.Errorf("Failed to remove group: %v", err)
 				return
@@ -227,7 +261,17 @@ func (p *PermissionsStoragePlugin) OnUserSetCookie(pluginID uint64, targetID uin
 		return
 	}
 
-	go p.storage.SetCookie(targetID, name, cookie)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+		defer cancel()
+
+		if err := p.storage.WaitReady(ctx); err != nil {
+			p.log.Errorf("Aborting UserSetCookie [ %v | cookie: '%s' | data: %s ], DB not ready: %v", targetID, name, cookie, err)
+			return
+		}
+
+		p.storage.SetCookie(targetID, name, cookie)
+	}()
 }
 
 func (p *PermissionsStoragePlugin) OnPermissionExpiration(targetID uint64, perm string) {
@@ -236,7 +280,15 @@ func (p *PermissionsStoragePlugin) OnPermissionExpiration(targetID uint64, perm 
 	}
 
 	go func() {
-		err := p.storage.RemovePermission(context.Background(), targetID, &model.UserPermission{Permission: perm})
+		ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+		defer cancel()
+
+		if err := p.storage.WaitReady(ctx); err != nil {
+			p.log.Errorf("Aborting PermissionExpiration [ %v | perm: '%s' ], DB not ready: %v", targetID, perm, err)
+			return
+		}
+
+		err := p.storage.RemovePermission(ctx, targetID, &model.UserPermission{Permission: perm})
 		if err != nil {
 			p.log.Errorf("Failed to remove expired permission: %v", err)
 			return
@@ -250,7 +302,15 @@ func (p *PermissionsStoragePlugin) OnGroupExpiration(targetID uint64, group stri
 	}
 
 	go func() {
-		err := p.storage.RemoveGroup(context.Background(), targetID, &model.UserGroup{GroupID: p.GetGroupIDByName(group)})
+		ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+		defer cancel()
+
+		if err := p.storage.WaitReady(ctx); err != nil {
+			p.log.Errorf("Aborting GroupExpiration [ %v | group: '%s' ], DB not ready: %v", targetID, group, err)
+			return
+		}
+
+		err := p.storage.RemoveGroup(ctx, targetID, &model.UserGroup{GroupID: p.GetGroupIDByName(group)})
 		if err != nil {
 			p.log.Errorf("Failed to remove expired group: %v", err)
 			return

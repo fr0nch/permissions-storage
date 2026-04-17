@@ -18,7 +18,11 @@ import (
 )
 
 type Storage struct {
-	db       *sql.DB
+	db *sql.DB
+
+	ready  chan struct{}
+	failed chan struct{}
+
 	settings *config.Settings
 	log      *logger.Logger
 
@@ -34,6 +38,13 @@ type Cookie struct {
 }
 
 func NewStorage(dsn url.URL, settings *config.Settings, logger *logger.Logger) (*Storage, error) {
+	s := &Storage{
+		ready:    make(chan struct{}),
+		failed:   make(chan struct{}),
+		settings: settings,
+		log:      logger,
+	}
+
 	db, err := sql.Open("mysql", strings.TrimPrefix(dsn.String(), "mysql://"))
 	if err != nil {
 		logger.Errorf("Doesn't open database: %v\n", err)
@@ -45,22 +56,50 @@ func NewStorage(dsn url.URL, settings *config.Settings, logger *logger.Logger) (
 	db.SetConnMaxIdleTime(time.Duration(settings.Data.PoolSettings.MaximumIdleLifetime) * time.Second)
 	db.SetConnMaxLifetime(time.Duration(settings.Data.PoolSettings.MaximumLifetime) * time.Second)
 
-	err = db.Ping()
-	if err != nil {
-		logger.Errorf("Doesn't open a connection: %v\n", err)
-		return nil, err
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := db.PingContext(ctx); err != nil {
+			db.Close()
+			close(s.failed)
+
+			logger.Errorf("Database is unreachable: %v", err)
+
+			return
+		}
+
+		s.db = db
+
+		_, err = db.Exec("SET time_zone = '+00:00'")
+		if err != nil {
+			logger.Errorf("Failed to set session timezone to UTC: %v\n", err)
+			return
+		}
+
+		logger.Debugf("Database connection established successfully")
+		close(s.ready)
+	}()
+
+	return s, nil
+}
+
+func (s *Storage) WaitReady(ctx context.Context) error {
+	select {
+	case <-s.ready:
+		return nil
+	case <-s.failed:
+		return fmt.Errorf("database connection failed")
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-
-	logger.Debugf("Database connection established successfully")
-
-	return &Storage{db: db, settings: settings, log: logger}, nil
 }
 
-func (p *Storage) Close() {
-	p.db.Close()
+func (s *Storage) Close() {
+	s.db.Close()
 }
 
-func (p *Storage) CreateTables(ctx context.Context) error {
+func (s *Storage) CreateTables(ctx context.Context) error {
 	//tx, err := p.db.BeginTx(ctx, nil)
 	//if err != nil {
 	//	return fmt.Errorf("failed to start the transaction.: %w", err)
@@ -198,15 +237,15 @@ func (p *Storage) CreateTables(ctx context.Context) error {
 	return nil
 }
 
-func (p *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaultGroupID int, err error) {
-	tx, err := p.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+func (s *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaultGroupID int, err error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, 0, fmt.Errorf("begin tx: %w", err)
 	}
 
 	defer tx.Rollback()
 
-	groups, defaultID, err := p.loadGroups(ctx, tx, p.settings.ServerID)
+	groups, defaultID, err := s.loadGroups(ctx, tx, s.settings.ServerID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -224,12 +263,12 @@ func (p *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaul
 	var permsByGroup map[int][]string
 	var optsByGroup map[int]map[string]string
 
-	permsByGroup, err = p.loadGroupPermissions(ctx, tx, ids)
+	permsByGroup, err = s.loadGroupPermissions(ctx, tx, ids)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	optsByGroup, err = p.loadGroupOptions(ctx, tx, ids)
+	optsByGroup, err = s.loadGroupOptions(ctx, tx, ids)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -243,10 +282,10 @@ func (p *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaul
 	return groups, defaultID, tx.Commit()
 }
 
-func (p *Storage) LoadUser(ctx context.Context, UserID model.UserID, username string) (*model.User, error) {
+func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username string) (*model.User, error) {
 	user := &model.User{UserID: UserID}
 
-	tx, err := p.db.BeginTx(ctx, nil)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
@@ -258,7 +297,7 @@ func (p *Storage) LoadUser(ctx context.Context, UserID model.UserID, username st
 	row := tx.QueryRowContext(ctx, query, UserID)
 	if err := row.Scan(&user.Name, &user.Immunity); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			if err := p.addUser(ctx, tx, UserID, username); err != nil {
+			if err := s.addUser(ctx, tx, UserID, username); err != nil {
 				return nil, fmt.Errorf("add user: %w", err)
 			}
 		} else {
@@ -266,22 +305,22 @@ func (p *Storage) LoadUser(ctx context.Context, UserID model.UserID, username st
 		}
 	}
 
-	user.Groups, err = p.loadUserGroups(ctx, tx, p.settings.ServerID, UserID)
+	user.Groups, err = s.loadUserGroups(ctx, tx, s.settings.ServerID, UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	user.Permissions, err = p.loadUserPermissions(ctx, tx, p.settings.ServerID, UserID)
+	user.Permissions, err = s.loadUserPermissions(ctx, tx, s.settings.ServerID, UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	var serverID int
-	if !p.settings.GlobalCookie {
-		serverID = p.settings.ServerID
+	if !s.settings.GlobalCookie {
+		serverID = s.settings.ServerID
 	}
 
-	user.Cookies, err = p.loadUserCookies(ctx, tx, serverID, UserID)
+	user.Cookies, err = s.loadUserCookies(ctx, tx, serverID, UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -289,8 +328,8 @@ func (p *Storage) LoadUser(ctx context.Context, UserID model.UserID, username st
 	return user, tx.Commit()
 }
 
-func (p *Storage) UpdateUser(ctx context.Context, user *model.User) error {
-	tx, err := p.db.BeginTx(ctx, nil)
+func (s *Storage) UpdateUser(ctx context.Context, user *model.User) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -307,8 +346,8 @@ func (p *Storage) UpdateUser(ctx context.Context, user *model.User) error {
 	return tx.Commit()
 }
 
-func (p *Storage) AddPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error {
-	tx, err := p.db.BeginTx(ctx, nil)
+func (s *Storage) AddPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -320,7 +359,7 @@ func (p *Storage) AddPermission(ctx context.Context, userID model.UserID, permis
 			ON DUPLICATE KEY UPDATE 
 			expires = ?`
 
-	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, permission.Permission, permission.Expires, permission.Expires)
+	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, permission.Permission, expiry(permission.Expires), expiry(permission.Expires))
 	if err != nil {
 		return fmt.Errorf("could not add permission: %w", err)
 	}
@@ -328,8 +367,8 @@ func (p *Storage) AddPermission(ctx context.Context, userID model.UserID, permis
 	return tx.Commit()
 }
 
-func (p *Storage) RemovePermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error {
-	tx, err := p.db.BeginTx(ctx, nil)
+func (s *Storage) RemovePermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -338,7 +377,7 @@ func (p *Storage) RemovePermission(ctx context.Context, userID model.UserID, per
 
 	query := `DELETE FROM server_user_permissions WHERE steamid64 = ? AND server_id = ? AND permission = ?`
 
-	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, permission.Permission)
+	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, permission.Permission)
 	if err != nil {
 		return fmt.Errorf("could not remove permission: %w", err)
 	}
@@ -346,8 +385,8 @@ func (p *Storage) RemovePermission(ctx context.Context, userID model.UserID, per
 	return tx.Commit()
 }
 
-func (p *Storage) AddGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
-	tx, err := p.db.BeginTx(ctx, nil)
+func (s *Storage) AddGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -359,7 +398,7 @@ func (p *Storage) AddGroup(ctx context.Context, userID model.UserID, group *mode
 			ON DUPLICATE KEY UPDATE 
 			expires = ?`
 
-	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, group.GroupID, group.Expires, group.Expires)
+	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, group.GroupID, expiry(group.Expires), expiry(group.Expires))
 	if err != nil {
 		return fmt.Errorf("could not add group: %w", err)
 	}
@@ -367,8 +406,8 @@ func (p *Storage) AddGroup(ctx context.Context, userID model.UserID, group *mode
 	return tx.Commit()
 }
 
-func (p *Storage) RemoveGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
-	tx, err := p.db.BeginTx(ctx, nil)
+func (s *Storage) RemoveGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -377,7 +416,7 @@ func (p *Storage) RemoveGroup(ctx context.Context, userID model.UserID, group *m
 
 	query := `DELETE FROM server_user_groups WHERE steamid64 = ? AND server_id = ? AND group_id = ?`
 
-	_, err = tx.ExecContext(ctx, query, userID, p.settings.ServerID, group.GroupID)
+	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, group.GroupID)
 	if err != nil {
 		return fmt.Errorf("could not remove group: %w", err)
 	}
@@ -385,54 +424,54 @@ func (p *Storage) RemoveGroup(ctx context.Context, userID model.UserID, group *m
 	return tx.Commit()
 }
 
-func (p *Storage) SetCookie(userID model.UserID, key string, value any) {
-	p.addQuery(Cookie{
+func (s *Storage) SetCookie(userID model.UserID, key string, value any) {
+	s.addQuery(Cookie{
 		userID: userID,
 		key:    key,
 		value:  value,
 	})
 }
 
-func (p *Storage) addQuery(cookie Cookie) {
-	p.mu.Lock()
+func (s *Storage) addQuery(cookie Cookie) {
+	s.mu.Lock()
 
-	index := slices.IndexFunc(p.cookies, func(c Cookie) bool {
+	index := slices.IndexFunc(s.cookies, func(c Cookie) bool {
 		return c.key == cookie.key
 	})
 
 	if index != -1 {
-		p.cookies[index] = cookie
+		s.cookies[index] = cookie
 	} else {
-		p.cookies = append(p.cookies, cookie)
+		s.cookies = append(s.cookies, cookie)
 	}
 
-	if p.delayedQueryTimer != nil {
-		p.delayedQueryTimer.Reset(5 * time.Second)
-		p.mu.Unlock()
+	if s.delayedQueryTimer != nil {
+		s.delayedQueryTimer.Reset(5 * time.Second)
+		s.mu.Unlock()
 		return
 	}
 
-	p.delayedQueryTimer = time.AfterFunc(5*time.Second, func() {
-		tmpCookies := make([]Cookie, len(p.cookies))
+	s.delayedQueryTimer = time.AfterFunc(5*time.Second, func() {
+		tmpCookies := make([]Cookie, len(s.cookies))
 
-		p.mu.Lock()
-		copy(tmpCookies, p.cookies)
-		clear(p.cookies)
-		p.mu.Unlock()
+		s.mu.Lock()
+		copy(tmpCookies, s.cookies)
+		clear(s.cookies)
+		s.mu.Unlock()
 
 		for _, _cookie := range tmpCookies {
-			err := p.setCookie(context.Background(), _cookie.userID, _cookie.key, _cookie.value)
+			err := s.setCookie(context.Background(), _cookie.userID, _cookie.key, _cookie.value)
 			if err != nil {
-				p.log.Errorf("Error setting cookie: %v\n", err)
+				s.log.Errorf("Error setting cookie: %v\n", err)
 			}
 		}
 	})
 
-	p.mu.Unlock()
+	s.mu.Unlock()
 }
 
-func (p *Storage) setCookie(ctx context.Context, userID model.UserID, key string, value any) error {
-	tx, err := p.db.BeginTx(ctx, nil)
+func (s *Storage) setCookie(ctx context.Context, userID model.UserID, key string, value any) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -445,8 +484,8 @@ func (p *Storage) setCookie(ctx context.Context, userID model.UserID, key string
 			option_value = ?`
 
 	var serverID int
-	if !p.settings.GlobalCookie {
-		serverID = p.settings.ServerID
+	if !s.settings.GlobalCookie {
+		serverID = s.settings.ServerID
 	}
 
 	_, err = tx.ExecContext(ctx, query, userID, serverID, key, value, value)
@@ -457,7 +496,7 @@ func (p *Storage) setCookie(ctx context.Context, userID model.UserID, key string
 	return tx.Commit()
 }
 
-func (p *Storage) loadGroups(ctx context.Context, tx *sql.Tx, serverID int) ([]*model.Group, int, error) {
+func (s *Storage) loadGroups(ctx context.Context, tx *sql.Tx, serverID int) ([]*model.Group, int, error) {
 	const query = `
 		SELECT  g.id,
 				g.name,
@@ -496,7 +535,7 @@ func (p *Storage) loadGroups(ctx context.Context, tx *sql.Tx, serverID int) ([]*
 	return res, defaultID, rows.Err()
 }
 
-func (p *Storage) loadGroupPermissions(ctx context.Context, tx *sql.Tx, groupIDs []int) (map[int][]string, error) {
+func (s *Storage) loadGroupPermissions(ctx context.Context, tx *sql.Tx, groupIDs []int) (map[int][]string, error) {
 	in, args := makeInClause(groupIDs)
 
 	query := fmt.Sprintf(`
@@ -528,7 +567,7 @@ func (p *Storage) loadGroupPermissions(ctx context.Context, tx *sql.Tx, groupIDs
 	return out, rows.Err()
 }
 
-func (p *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []int) (map[int]map[string]string, error) {
+func (s *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []int) (map[int]map[string]string, error) {
 	in, args := makeInClause(groupIDs)
 
 	query := fmt.Sprintf(`
@@ -563,7 +602,7 @@ func (p *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []i
 	return out, rows.Err()
 }
 
-func (p *Storage) addUser(ctx context.Context, tx *sql.Tx, UserID model.UserID, username string) error {
+func (s *Storage) addUser(ctx context.Context, tx *sql.Tx, UserID model.UserID, username string) error {
 	query := `INSERT INTO users (steamid64, name, immunity) VALUES (?, ?, ?)`
 
 	_, err := tx.ExecContext(ctx, query, UserID, username, 0)
@@ -574,7 +613,7 @@ func (p *Storage) addUser(ctx context.Context, tx *sql.Tx, UserID model.UserID, 
 	return nil
 }
 
-func (p *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) ([]model.UserGroup, error) {
+func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) ([]model.UserGroup, error) {
 	query := `
 		SELECT
 			group_id,
@@ -599,7 +638,7 @@ func (p *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 		var expires sql.NullTime
 
 		if err := rows.Scan(&group.GroupID, &group.GroupName, &expires); err != nil {
-			p.log.Errorf("Failed to scan server user groups: %v\n", err)
+			s.log.Errorf("Failed to scan server user groups: %v\n", err)
 			continue
 		}
 
@@ -609,14 +648,14 @@ func (p *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 			group.Expires = time.Time{}
 		}
 
-		p.log.Debugf("Loading group '%s'[id: %d] for user: %d\n", group.GroupName, group.GroupID, UserID)
+		s.log.Debugf("Loading group '%s'[id: %d] for user: %d\n", group.GroupName, group.GroupID, UserID)
 		groups = append(groups, group)
 	}
 
 	return groups, rows.Err()
 }
 
-func (p *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) ([]model.UserPermission, error) {
+func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) ([]model.UserPermission, error) {
 	query := `
 		SELECT
 			permission,
@@ -639,7 +678,7 @@ func (p *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 		var expires sql.NullTime
 
 		if err := rows.Scan(&permission.Permission, &expires); err != nil {
-			p.log.Errorf("Failed to scan server user manager: %v\n", err)
+			s.log.Errorf("Failed to scan server user manager: %v\n", err)
 			continue
 		}
 
@@ -649,16 +688,16 @@ func (p *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 			permission.Expires = time.Time{}
 		}
 
-		p.log.Debugf("Loading permission '%s' for user: %d\n", permission.Permission, UserID)
+		s.log.Debugf("Loading permission '%s' for user: %d\n", permission.Permission, UserID)
 		permissions = append(permissions, permission)
 	}
 
-	p.log.Debugf("Loaded %d permissions\n", len(permissions))
+	s.log.Debugf("Loaded %d permissions\n", len(permissions))
 
 	return permissions, rows.Err()
 }
 
-func (p *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) (map[string]string, error) {
+func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) (map[string]string, error) {
 	query := `
 		SELECT option_key, option_value 
 		FROM user_cookies 
@@ -677,15 +716,15 @@ func (p *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int,
 	for rows.Next() {
 		var cookieKey, cookieValue string
 		if err := rows.Scan(&cookieKey, &cookieValue); err != nil {
-			p.log.Errorf("Failed to scan server user cookies: %v\n", err)
+			s.log.Errorf("Failed to scan server user cookies: %v\n", err)
 			continue
 		}
 
-		p.log.Debugf("Loading cookie '%s' for user: %d\n", cookieKey, UserID)
+		s.log.Debugf("Loading cookie '%s' for user: %d\n", cookieKey, UserID)
 		cookies[cookieKey] = cookieValue
 	}
 
-	p.log.Debugf("Loaded %d cookies\n", len(cookies))
+	s.log.Debugf("Loaded %d cookies\n", len(cookies))
 
 	return cookies, rows.Err()
 }
@@ -700,4 +739,11 @@ func makeInClause(ids []int) (string, []any) {
 	}
 
 	return strings.Join(parts, ", "), args
+}
+
+func expiry(t time.Time) any {
+	if t.IsZero() || t.Unix() <= 0 {
+		return nil
+	}
+	return t.UTC()
 }
