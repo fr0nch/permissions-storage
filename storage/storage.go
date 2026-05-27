@@ -13,7 +13,7 @@ type Storage interface {
 	LoadUser(ctx context.Context, userID model.UserID, username string) (user *model.User, err error)
 	UpdateUser(ctx context.Context, user *model.User) error
 
-	AddPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error
+	AddPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission, wildcard bool) error
 	RemovePermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error
 
 	AddGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error

@@ -46,7 +46,7 @@ func (p *PermissionsStoragePlugin) OnLoadUser(pluginID uint64, targetID uint64, 
 			p.log.Errorf("Error updating user: %v", err)
 		}
 
-		permissions.CreateUser(p.pluginID, targetID, user.Immunity, nil, nil)
+		permissions.CreateUser(p.pluginID, targetID, user.Immunity, nil)
 
 		p.log.Debugf("Loading user: \n - \tUserID: %d, \n - \tGroups: %v, \n - \tPermissions: %v, \n - \tCookies: %v", user.UserID, user.Groups, user.Permissions, user.Cookies)
 
@@ -75,8 +75,13 @@ func (p *PermissionsStoragePlugin) OnLoadUser(pluginID uint64, targetID uint64, 
 				expires = user.Permissions[i].Expires.Unix()
 			}
 
-			p.log.Debugf("AddPermission: name='%s', expires=%d", user.Permissions[i].Permission, expires)
-			permissions.AddPermission(p.pluginID, targetID, user.Permissions[i].Permission, expires, true)
+			var status string
+			if !user.Permissions[i].State {
+				status = "-"
+			}
+
+			p.log.Debugf("AddPermission: name='%s', status='%v', expires=%d", user.Permissions[i].Permission, user.Permissions[i].State, expires)
+			permissions.AddPermission(p.pluginID, targetID, status+user.Permissions[i].Permission, expires, true)
 		}
 
 		for key, value := range user.Cookies {
@@ -175,7 +180,7 @@ func (p *PermissionsStoragePlugin) OnLoadGroups(pluginID uint64) {
 	}()
 }
 
-func (p *PermissionsStoragePlugin) OnUserPermissionChange(pluginID uint64, action permissions.Action, targetID uint64, perm string, timestamp int64) {
+func (p *PermissionsStoragePlugin) OnUserPermissionChange(pluginID uint64, action permissions.Action, targetID uint64, perm string, oldState permissions.Status, newState permissions.Status, oldTimestamp int64, newTimestamp int64) {
 	if pluginID == p.pluginID {
 		return
 	}
@@ -185,27 +190,36 @@ func (p *PermissionsStoragePlugin) OnUserPermissionChange(pluginID uint64, actio
 		defer cancel()
 
 		if err := p.storage.WaitReady(ctx); err != nil {
-			p.log.Errorf("Aborting UserPermissionChange [ %v | perm: '%s' | timestamp: %d ], DB not ready: %v", targetID, perm, timestamp, err)
+			p.log.Errorf("Aborting UserPermissionChange [ %v | perm: '%s' | timestamp: %d ], DB not ready: %v", targetID, perm, newTimestamp, err)
 			return
 		}
 
 		permission := model.UserPermission{
 			Permission: perm,
-			Expires:    time.Unix(timestamp, 0),
+			State:      newState == permissions.Status_Allow,
+			Expires:    time.Unix(newTimestamp, 0),
 		}
 
 		switch action {
-		case permissions.Action_Add /*, permissions.Action_Set*/ :
-			err := p.storage.AddPermission(ctx, targetID, &permission)
+		case permissions.Action_Add:
+			err := p.storage.AddPermission(ctx, targetID, &permission, false)
 			if err != nil {
 				p.log.Errorf("Failed to add permission: %v", err)
 				return
 			}
-		case permissions.Action_Remove:
-			if !p.config.Settings.DeleteRemovedRecords {
+		case permissions.Action_Replace:
+			err := p.storage.AddPermission(ctx, targetID, &permission, false)
+			if err != nil {
+				p.log.Errorf("Failed to replace permission: %v", err)
 				return
 			}
-
+		case permissions.Action_ReplaceToWC:
+			err := p.storage.AddPermission(ctx, targetID, &permission, true)
+			if err != nil {
+				p.log.Errorf("Failed to replace permission with wildcard: %v", err)
+				return
+			}
+		case permissions.Action_Remove:
 			err := p.storage.RemovePermission(ctx, targetID, &permission)
 			if err != nil {
 				p.log.Errorf("Failed to remove permission: %v", err)
@@ -216,7 +230,7 @@ func (p *PermissionsStoragePlugin) OnUserPermissionChange(pluginID uint64, actio
 
 }
 
-func (p *PermissionsStoragePlugin) OnUserGroupChange(pluginID uint64, action permissions.Action, targetID uint64, group string, timestamp int64) {
+func (p *PermissionsStoragePlugin) OnUserGroupChange(pluginID uint64, action permissions.Action, targetID uint64, group string, oldTimestamp int64, newTimestamp int64) {
 	if pluginID == p.pluginID {
 		return
 	}
@@ -226,20 +240,26 @@ func (p *PermissionsStoragePlugin) OnUserGroupChange(pluginID uint64, action per
 		defer cancel()
 
 		if err := p.storage.WaitReady(ctx); err != nil {
-			p.log.Errorf("Aborting UserGroupChange [ %v | group: '%s' | timestamp: %d ], DB not ready: %v", targetID, group, timestamp, err)
+			p.log.Errorf("Aborting UserGroupChange [ %v | group: '%s' | timestamp: %d ], DB not ready: %v", targetID, group, newTimestamp, err)
 			return
 		}
 
 		_group := model.UserGroup{
 			GroupID: p.GetGroupIDByName(group),
-			Expires: time.Unix(timestamp, 0),
+			Expires: time.Unix(newTimestamp, 0),
 		}
 
 		switch action {
-		case permissions.Action_Add /*, permissions.Action_Set*/ :
+		case permissions.Action_Add:
 			err := p.storage.AddGroup(ctx, targetID, &_group)
 			if err != nil {
 				p.log.Errorf("Failed to add group: %v", err)
+				return
+			}
+		case permissions.Action_Replace:
+			err := p.storage.AddGroup(ctx, targetID, &_group)
+			if err != nil {
+				p.log.Errorf("Failed to replace group: %v", err)
 				return
 			}
 		case permissions.Action_Remove:
@@ -274,7 +294,7 @@ func (p *PermissionsStoragePlugin) OnUserSetCookie(pluginID uint64, targetID uin
 	}()
 }
 
-func (p *PermissionsStoragePlugin) OnPermissionExpiration(targetID uint64, perm string) {
+func (p *PermissionsStoragePlugin) OnPermissionExpiration(targetID uint64, perm string, state permissions.Status) {
 	if !p.config.Settings.DeleteExpiredRecords {
 		return
 	}
