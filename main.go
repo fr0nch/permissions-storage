@@ -11,7 +11,6 @@ import (
 	"permissions-storage/storage/mysql"
 	"permissions-storage/storage/postgres"
 	"permissions-storage/storage/sqlite"
-	"runtime/debug"
 
 	"github.com/fr0nch/logger"
 	"github.com/untrustedmodders/go-plugify"
@@ -40,10 +39,9 @@ func init() {
 
 	plugify.OnPluginStart(plugin.OnPluginStart)
 	plugify.OnPluginEnd(plugin.OnPluginEnd)
-	plugify.OnPluginPanic(plugin.OnPluginPanic)
 }
 
-func (p *PermissionsStoragePlugin) OnPluginStart() {
+func (p *PermissionsStoragePlugin) OnPluginStart() error {
 	var err error
 
 	p.log, err = logger.NewWithOptions(logger.Options{Folder: "permissions"})
@@ -97,14 +95,12 @@ func (p *PermissionsStoragePlugin) OnPluginStart() {
 	}
 
 	p.RegisteringEvents()
+	return nil
 }
 
-func (p *PermissionsStoragePlugin) OnPluginEnd() {
+func (p *PermissionsStoragePlugin) OnPluginEnd() error {
 	p.storage.Close()
-}
-
-func (p *PermissionsStoragePlugin) OnPluginPanic() []byte {
-	return debug.Stack()
+	return nil
 }
 
 func BuildDSN(settings *config.Settings) url.URL {
@@ -144,7 +140,7 @@ func BuildDSN(settings *config.Settings) url.URL {
 		u.Scheme = "file"
 
 		u.User = nil
-		u.Path = filepath.Join(plugify.DataDir, "permissions", "permissions.db")
+		u.Path = filepath.Join(plugify.DataDir(), "permissions", "permissions.db")
 	default:
 		panic("unsupported database type:" + settings.StorageMethod)
 	}

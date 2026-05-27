@@ -15,7 +15,7 @@ func NewConfig() *Config {
 }
 
 func LoadConfig[T ConfigsType](folder, fileName string, defaultData T) (*T, error) {
-	configPath := filepath.Join(plugify.ConfigsDir, folder, fileName)
+	configPath := filepath.Join(plugify.ConfigsDir(), folder, fileName)
 
 	//fmt.Printf("Loading config from %s\n", configPath)
 	err := createConfigFile(configPath, defaultData)
