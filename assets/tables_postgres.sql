@@ -14,7 +14,7 @@ RETURN NEW;
 END;
 $$ language 'plpgsql';
 
-CREATE TABLE IF NOT EXISTS perms_groups (
+CREATE TABLE IF NOT EXISTS groups (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     priority INTEGER NOT NULL DEFAULT 0,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS perms_groups (
 
 CREATE INDEX idx_groups_inheritance_id ON groups(inheritance_id);
 
-CREATE TABLE IF NOT EXISTS perms_group_options (
+CREATE TABLE IF NOT EXISTS group_options (
     id SERIAL PRIMARY KEY,
     group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     option_key VARCHAR(255) NOT NULL,
@@ -43,10 +43,11 @@ BEFORE UPDATE ON group_options
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_column();
 
-CREATE TABLE IF NOT EXISTS perms_group_permissions (
+CREATE TABLE IF NOT EXISTS group_permissions (
     id SERIAL PRIMARY KEY,
     group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     permission VARCHAR(255) NOT NULL,
+    state BOOLEAN NOT NULL DEFAULT TRUE,
     UNIQUE(group_id, permission),
     CHECK (TRIM(permission) <> '')
 );
@@ -54,7 +55,7 @@ CREATE TABLE IF NOT EXISTS perms_group_permissions (
 CREATE INDEX idx_group_permissions_group_id ON group_permissions(group_id);
 CREATE INDEX idx_group_permissions_permission ON group_permissions(permission);
 
-CREATE TABLE IF NOT EXISTS perms_users (
+CREATE TABLE IF NOT EXISTS users (
     steamid64 BIGINT PRIMARY KEY,
     name VARCHAR(128) DEFAULT NULL,
     immunity INTEGER NOT NULL DEFAULT 0,
@@ -67,7 +68,7 @@ BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION update_lastvisit_at_column();
 
-CREATE TABLE IF NOT EXISTS perms_servers (
+CREATE TABLE IF NOT EXISTS servers (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     address VARCHAR(32) DEFAULT NULL,
@@ -76,7 +77,7 @@ CREATE TABLE IF NOT EXISTS perms_servers (
 
 CREATE INDEX idx_servers_default_group ON servers(default_group);
 
-CREATE TABLE IF NOT EXISTS perms_server_groups (
+CREATE TABLE IF NOT EXISTS server_groups (
     id SERIAL PRIMARY KEY,
     server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE NO ACTION,
     group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE NO ACTION,
@@ -90,7 +91,7 @@ INSERT INTO groups (id, name, priority, inheritance_id) VALUES (1, 'Default', 0,
 INSERT INTO servers (id, name, address, default_group) VALUES (0, 'All Servers', null, 1);
 INSERT INTO server_groups (id, server_id, group_id) VALUES (1, 0, 1);
 
-CREATE TABLE IF NOT EXISTS perms_server_user_groups (
+CREATE TABLE IF NOT EXISTS server_user_groups (
     id SERIAL PRIMARY KEY,
     steamid64 BIGINT NOT NULL REFERENCES users(steamid64) ON DELETE CASCADE,
     server_id INTEGER NOT NULL,
@@ -110,11 +111,12 @@ BEFORE UPDATE ON server_user_groups
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_column();
 
-CREATE TABLE IF NOT EXISTS perms_server_user_permissions (
+CREATE TABLE IF NOT EXISTS server_user_permissions (
     id SERIAL PRIMARY KEY,
     steamid64 BIGINT NOT NULL REFERENCES users(steamid64) ON DELETE CASCADE,
     server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
     permission VARCHAR(255) NOT NULL,
+    state BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires TIMESTAMPTZ NULL DEFAULT NULL,
     updated TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -131,7 +133,7 @@ BEFORE UPDATE ON server_user_permissions
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_column();
 
-CREATE TABLE IF NOT EXISTS perms_user_cookies (
+CREATE TABLE IF NOT EXISTS user_cookies (
     id SERIAL PRIMARY KEY,
     steamid64 BIGINT NOT NULL REFERENCES users(steamid64) ON DELETE CASCADE,
     server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,

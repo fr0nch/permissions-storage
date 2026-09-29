@@ -7,6 +7,9 @@ MANIFEST="assets/permissions-storage.pplugin"
 RELEASE_MANIFEST=".github/release-please-manifest.json"
 
 NAME=$(jq -r '.name' "$MANIFEST")
+ENTRY=$(jq -r '.entry' "$MANIFEST")
+FILENAME=$(basename "$ENTRY")
+FILENAME=${FILENAME#lib}
 
 if [ -f "$RELEASE_MANIFEST" ]; then
   VERSION=$(jq -r '."."' "$RELEASE_MANIFEST")
@@ -29,7 +32,7 @@ mkdir -p "$OUTDIR"
 echo "Building $NAME v$VERSION ($MODE)"
 
 jq --arg version "$VERSION" \
-'.version = $version' "$MANIFEST" > "$OUTDIR/$NAME.pplugin"
+'.version = $version' "$MANIFEST" > "$OUTDIR/$FILENAME.pplugin"
 
 GOFLAGS=()
 LDFLAGS=""
@@ -45,8 +48,8 @@ go build \
   -buildmode=c-shared \
   "${GOFLAGS[@]}" \
   -ldflags="$LDFLAGS" \
-  -o "$OUTDIR/lib$NAME.so"
+  -o "$OUTDIR/lib$FILENAME.so"
 
 echo "Output:"
-echo "$OUTDIR/lib$NAME.so"
-echo "$OUTDIR/$NAME.pplugin"
+echo "$OUTDIR/lib$FILENAME.so"
+echo "$OUTDIR/$FILENAME.pplugin"

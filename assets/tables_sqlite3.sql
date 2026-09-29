@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS group_permissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id INTEGER NOT NULL,
     permission TEXT NOT NULL,
+    state INTEGER NOT NULL DEFAULT 1,
     UNIQUE(group_id, permission),
     FOREIGN KEY (group_id) REFERENCES groups (id) ON DELETE CASCADE,
     CHECK (TRIM(permission) != '')
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS server_user_permissions (
     steamid64 INTEGER NOT NULL,
     server_id INTEGER NOT NULL,
     permission TEXT NOT NULL,
+    state INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires TIMESTAMP DEFAULT NULL,
     updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

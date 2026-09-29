@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/untrustedmodders/plugify/refs/heads/main/schemas/plugin.schema.json",
   "version": "0.0.1",
-  "name": "permissions-storage",
+  "name": "permissions_storage",
   "description": "Storage extension for the permissions plugin. Provides persistent data storage for user permissions and access control",
   "author": "Fr4nch",
   "website": "https://github.com/fr0nch",

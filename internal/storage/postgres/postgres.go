@@ -6,10 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"permissions-storage/pkg/config"
-	"permissions-storage/pkg/model"
+	"permissions-storage/internal/pkg/config"
+	"permissions-storage/internal/pkg/model"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,12 +40,12 @@ type Cookie struct {
 func NewStorage(dsn url.URL, settings *config.Settings, logger *logger.Logger) (*Storage, error) {
 	//fmt.Println("DSN:", dsn.String())
 
-	s := &Storage{
+	s := new(Storage{
 		ready:    make(chan struct{}),
 		failed:   make(chan struct{}),
 		settings: settings,
 		log:      logger,
-	}
+	})
 
 	db, err := sql.Open("pgx", dsn.String())
 	if err != nil {
@@ -263,8 +262,8 @@ func (s *Storage) CreateTables(ctx context.Context) error {
 	return nil
 }
 
-func (s *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaultGroupID int, err error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+func (s *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaultGroupID model.GroupID, err error) {
+	tx, err := s.db.BeginTx(ctx, new(sql.TxOptions{ReadOnly: true}))
 	if err != nil {
 		return nil, 0, fmt.Errorf("begin tx: %w", err)
 	}
@@ -280,14 +279,14 @@ func (s *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaul
 		return nil, defaultID, tx.Commit()
 	}
 
-	ids := make([]int, len(groups))
+	ids := make([]model.GroupID, len(groups))
 	for i := range groups {
 		ids[i] = groups[i].ID
-		groups[i].Options = make(map[string]string)
+		groups[i].Options = make(model.Option)
 	}
 
-	var permsByGroup map[int][]string
-	var optsByGroup map[int]map[string]string
+	var permsByGroup map[model.GroupID][]model.Permission
+	var optsByGroup map[model.GroupID]model.Option
 
 	permsByGroup, err = s.loadGroupPermissions(ctx, tx, ids)
 	if err != nil {
@@ -308,8 +307,8 @@ func (s *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaul
 	return groups, defaultID, tx.Commit()
 }
 
-func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username string) (*model.User, error) {
-	user := &model.User{UserID: UserID}
+func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username string, create bool) (*model.User, error) {
+	user := new(model.User{UserID: UserID})
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -323,6 +322,9 @@ func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username st
 	row := tx.QueryRowContext(ctx, query, UserID)
 	if err := row.Scan(&user.Name, &user.Immunity); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			if !create {
+				return nil, fmt.Errorf("user not found")
+			}
 			if err := s.addUser(ctx, tx, UserID, username); err != nil {
 				return nil, fmt.Errorf("add user: %w", err)
 			}
@@ -372,7 +374,7 @@ func (s *Storage) UpdateUser(ctx context.Context, user *model.User) error {
 	return tx.Commit()
 }
 
-func (s *Storage) AddPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error {
+func (s *Storage) AddUserPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission, wildcard bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -380,12 +382,43 @@ func (s *Storage) AddPermission(ctx context.Context, userID model.UserID, permis
 
 	defer tx.Rollback()
 
-	query := `INSERT INTO server_user_permissions (steamid64, server_id, permission, expires)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (steamid64, server_id, permission)
-			DO UPDATE SET expires = $5;`
+	expires := expiry(permission.Expires)
 
-	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, permission.Permission, expiry(permission.Expires), expiry(permission.Expires))
+	if wildcard {
+		query := `UPDATE server_user_permissions
+				SET permission = $1, state = $2, expires = $3, updated = CURRENT_TIMESTAMP
+				WHERE steamid64 = $4 AND server_id = $5 AND permission = $6`
+
+		searchPerm := strings.TrimSuffix(permission.Name, ".*")
+
+		res, err := tx.ExecContext(ctx, query,
+			permission.Name, permission.State, expires, userID, s.settings.ServerID, searchPerm,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to replace permission with wildcard: %w", err)
+		}
+
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("check rows affected: %w", err)
+		}
+
+		if rows > 0 {
+			return tx.Commit()
+		}
+
+		s.log.Warnf("Failed to update permission (not found): %s; inserting for user %v", searchPerm, userID)
+	}
+
+	query := `INSERT INTO server_user_permissions (steamid64, server_id, permission, state, expires)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (steamid64, server_id, permission)
+			DO UPDATE SET state = $6, expires = $7, updated = CURRENT_TIMESTAMP`
+
+	_, err = tx.ExecContext(ctx, query,
+		userID, s.settings.ServerID, permission.Name, permission.State, expires, permission.State, expires,
+	)
 	if err != nil {
 		return fmt.Errorf("could not add permission: %w", err)
 	}
@@ -393,7 +426,7 @@ func (s *Storage) AddPermission(ctx context.Context, userID model.UserID, permis
 	return tx.Commit()
 }
 
-func (s *Storage) RemovePermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error {
+func (s *Storage) RemoveUserPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -401,17 +434,24 @@ func (s *Storage) RemovePermission(ctx context.Context, userID model.UserID, per
 
 	defer tx.Rollback()
 
-	query := `DELETE FROM server_user_permissions WHERE steamid64 = $1 AND server_id = $2 AND permission = $3`
+	var query string
+	if s.settings.DeleteRemovedRecords {
+		query = `DELETE FROM server_user_permissions WHERE steamid64 = $1 AND server_id = $2 AND permission = $3`
+	} else {
+		query = `UPDATE server_user_permissions
+				SET expires = CURRENT_TIMESTAMP, updated = CURRENT_TIMESTAMP
+				WHERE steamid64 = $1 AND server_id = $2 AND permission = $3`
+	}
 
-	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, permission.Permission)
+	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, permission.Name)
 	if err != nil {
-		return fmt.Errorf("could not remove permission: %w", err)
+		return fmt.Errorf("could not remove/deactivate permission: %w", err)
 	}
 
 	return tx.Commit()
 }
 
-func (s *Storage) AddGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
+func (s *Storage) AddUserGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -424,7 +464,7 @@ func (s *Storage) AddGroup(ctx context.Context, userID model.UserID, group *mode
 			ON CONFLICT (steamid64, server_id, group_id)
 			DO UPDATE SET expires = $5`
 
-	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, group.GroupID, expiry(group.Expires), expiry(group.Expires))
+	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, group.ID, expiry(group.Expires), expiry(group.Expires))
 	if err != nil {
 		return fmt.Errorf("could not add group: %w", err)
 	}
@@ -432,7 +472,7 @@ func (s *Storage) AddGroup(ctx context.Context, userID model.UserID, group *mode
 	return tx.Commit()
 }
 
-func (s *Storage) RemoveGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
+func (s *Storage) RemoveUserGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -440,25 +480,36 @@ func (s *Storage) RemoveGroup(ctx context.Context, userID model.UserID, group *m
 
 	defer tx.Rollback()
 
-	query := `DELETE FROM server_user_groups WHERE steamid64 = $1 AND server_id = $2 AND group_id = $3`
+	var query string
+	if s.settings.DeleteRemovedRecords {
+		query = `DELETE FROM server_user_groups WHERE steamid64 = $1 AND server_id = $2 AND group_id = $3`
+	} else {
+		query = `UPDATE server_user_groups
+				SET expires = CURRENT_TIMESTAMP, updated = CURRENT_TIMESTAMP
+				WHERE steamid64 = $1 AND server_id = $2 AND group_id = $3`
+	}
 
-	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, group.GroupID)
+	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, group.ID)
 	if err != nil {
-		return fmt.Errorf("could not remove group: %w", err)
+		return fmt.Errorf("could not remove/deactivate group: %w", err)
 	}
 
 	return tx.Commit()
 }
 
-func (s *Storage) SetCookie(userID model.UserID, key string, value any) {
-	s.addQuery(Cookie{
+func (s *Storage) SetCookie(ctx context.Context, userID model.UserID, key string, value any) {
+	s.addQuery(ctx, Cookie{
 		userID: userID,
 		key:    key,
 		value:  value,
 	})
 }
 
-func (s *Storage) addQuery(cookie Cookie) {
+func (s *Storage) CreateGroup(ctx context.Context, group *model.Group) error {
+	return nil
+}
+
+func (s *Storage) addQuery(ctx context.Context, cookie Cookie) {
 	s.mu.Lock()
 
 	index := slices.IndexFunc(s.cookies, func(c Cookie) bool {
@@ -486,7 +537,7 @@ func (s *Storage) addQuery(cookie Cookie) {
 		s.mu.Unlock()
 
 		for _, _cookie := range tmpCookies {
-			err := s.setCookie(context.Background(), _cookie.userID, _cookie.key, _cookie.value)
+			err := s.setCookie(ctx, _cookie.userID, _cookie.key, _cookie.value)
 			if err != nil {
 				s.log.Errorf("Error setting cookie: %v\n", err)
 			}
@@ -522,7 +573,7 @@ func (s *Storage) setCookie(ctx context.Context, userID model.UserID, key string
 	return tx.Commit()
 }
 
-func (s *Storage) loadGroups(ctx context.Context, tx *sql.Tx, serverID int) ([]*model.Group, int, error) {
+func (s *Storage) loadGroups(ctx context.Context, tx *sql.Tx, serverID int) ([]*model.Group, model.GroupID, error) {
 	const query = `
 		SELECT  g.id,
 				g.name,
@@ -545,10 +596,10 @@ func (s *Storage) loadGroups(ctx context.Context, tx *sql.Tx, serverID int) ([]*
 	defer rows.Close()
 
 	res := make([]*model.Group, 0)
-	var defaultID int
+	var defaultID model.GroupID
 
 	for rows.Next() {
-		g := &model.Group{}
+		g := new(model.Group{})
 		if err := rows.Scan(&g.ID, &g.Name, &g.Priority, &g.InheritanceID, &g.Default); err != nil {
 			return nil, 0, fmt.Errorf("scan group: %w", err)
 		}
@@ -561,7 +612,7 @@ func (s *Storage) loadGroups(ctx context.Context, tx *sql.Tx, serverID int) ([]*
 	return res, defaultID, rows.Err()
 }
 
-func (s *Storage) loadGroupPermissions(ctx context.Context, tx *sql.Tx, groupIDs []int) (map[int][]string, error) {
+func (s *Storage) loadGroupPermissions(ctx context.Context, tx *sql.Tx, groupIDs []model.GroupID) (map[model.GroupID][]model.Permission, error) {
 	in, args := makeInClause(groupIDs)
 
 	query := fmt.Sprintf(`
@@ -578,22 +629,22 @@ func (s *Storage) loadGroupPermissions(ctx context.Context, tx *sql.Tx, groupIDs
 
 	defer rows.Close()
 
-	out := make(map[int][]string, len(groupIDs))
+	out := make(map[model.GroupID][]model.Permission, len(groupIDs))
 	for rows.Next() {
-		var gid int
-		var perm string
+		var gid model.GroupID
+		var permission model.Permission
 
-		if err := rows.Scan(&gid, &perm); err != nil {
+		if err := rows.Scan(&gid, &permission.Name, &permission.State); err != nil {
 			return nil, fmt.Errorf("scan permission: %w", err)
 		}
 
-		out[gid] = append(out[gid], perm)
+		out[gid] = append(out[gid], permission)
 	}
 
 	return out, rows.Err()
 }
 
-func (s *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []int) (map[int]map[string]string, error) {
+func (s *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []model.GroupID) (map[model.GroupID]model.Option, error) {
 	in, args := makeInClause(groupIDs)
 
 	query := fmt.Sprintf(`
@@ -609,9 +660,9 @@ func (s *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []i
 	}
 	defer rows.Close()
 
-	out := make(map[int]map[string]string, len(groupIDs))
+	out := make(map[model.GroupID]model.Option, len(groupIDs))
 	for rows.Next() {
-		var gid int
+		var gid model.GroupID
 		var k, v string
 
 		if err := rows.Scan(&gid, &k, &v); err != nil {
@@ -619,7 +670,7 @@ func (s *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []i
 		}
 
 		if out[gid] == nil {
-			out[gid] = make(map[string]string)
+			out[gid] = make(model.Option)
 		}
 
 		out[gid][k] = v
@@ -663,7 +714,7 @@ func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 		var group model.UserGroup
 		var expires sql.NullTime
 
-		if err := rows.Scan(&group.GroupID, &group.GroupName, &expires); err != nil {
+		if err := rows.Scan(&group.ID, &group.Name, &expires); err != nil {
 			s.log.Errorf("Failed to scan server user groups: %v\n", err)
 			continue
 		}
@@ -674,7 +725,7 @@ func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 			group.Expires = time.Time{}
 		}
 
-		s.log.Debugf("Loading group '%s'[id: %d] for user: %d\n", group.GroupName, group.GroupID, UserID)
+		s.log.Debugf("Loading group '%s'[id: %d] for user: %d\n", group.Name, group.ID, UserID)
 		groups = append(groups, group)
 	}
 
@@ -685,6 +736,7 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 	query := `
 		SELECT
 			permission,
+			state,
 			expires
 		FROM server_user_permissions 
 		WHERE steamid64 = $1 AND server_id = $2 AND (expires IS NULL OR expires = '1970.01.01 00:00:00' OR expires > CURRENT_TIMESTAMP)
@@ -703,7 +755,7 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 		var permission model.UserPermission
 		var expires sql.NullTime
 
-		if err := rows.Scan(&permission.Permission, &expires); err != nil {
+		if err := rows.Scan(&permission.Name, &permission.State, &expires); err != nil {
 			s.log.Errorf("Failed to scan server user manager: %v\n", err)
 			continue
 		}
@@ -714,7 +766,7 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 			permission.Expires = time.Time{}
 		}
 
-		s.log.Debugf("Loading permission '%s' for user: %d\n", permission.Permission, UserID)
+		s.log.Debugf("Loading permission '%s'[state:%v] for user: %d\n", permission.Name, permission.State, UserID)
 		permissions = append(permissions, permission)
 	}
 
@@ -723,7 +775,7 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 	return permissions, rows.Err()
 }
 
-func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) (map[string]string, error) {
+func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) (model.Cookie, error) {
 	query := `
 		SELECT option_key, option_value 
 		FROM user_cookies 
@@ -737,7 +789,7 @@ func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int,
 
 	defer rows.Close()
 
-	var cookies = make(map[string]string)
+	var cookies = make(model.Cookie)
 
 	for rows.Next() {
 		var cookieKey, cookieValue string
@@ -755,18 +807,17 @@ func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int,
 	return cookies, rows.Err()
 }
 
-func makeInClause(ids []int) (string, []any) {
+func makeInClause[T model.ID](ids []T) (string, []any) {
 	parts := make([]string, 0, len(ids))
 	args := make([]any, 0, len(ids))
 
-	for i, id := range ids {
-		parts = append(parts, "$"+strconv.Itoa(i+1))
+	for _, id := range ids {
+		parts = append(parts, "?")
 		args = append(args, id)
 	}
 
 	return strings.Join(parts, ", "), args
 }
-
 func expiry(t time.Time) any {
 	if t.IsZero() || t.Unix() <= 0 {
 		return nil
