@@ -86,7 +86,7 @@ func addCommentsFromTags(node *yaml.Node, t reflect.Type) {
 
 		for j := range t.NumField() {
 			field := t.Field(j)
-			yamlTag := field.Tag.Get("files")
+			yamlTag := field.Tag.Get("yaml")
 
 			if yamlTag != keyNode.Value {
 				continue

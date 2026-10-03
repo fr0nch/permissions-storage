@@ -77,7 +77,6 @@ func (p *PermissionsStoragePlugin) OnPluginStart() error {
 		//case "sqlite3":
 		//	p.storage, err = sqlite.NewStorage(dsn, p.config.Settings, p.log)
 		//	break
-		//case "files":
 	}
 
 	if err != nil {
