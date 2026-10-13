@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/untrustedmodders/plugify/refs/heads/main/schemas/plugin.schema.json",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "name": "permissions_storage",
   "description": "Storage for the permissions plugin: keeps groups, user permissions, user groups and cookies in MySQL/MariaDB, PostgreSQL or SQLite.",
   "author": "Fr4nch",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/fr0nch/permissions-storage/compare/v0.1.0...v0.1.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **ci:** build conda packages with rattler-build, allow uploading release assets ([ceeac30](https://github.com/fr0nch/permissions-storage/commit/ceeac3050dd88a695ee344ba3e87f164ead04c8e))
+
 ## [0.1.0](https://github.com/fr0nch/permissions-storage/compare/v0.0.1...v0.1.0) (2026-10-13)
 
 
