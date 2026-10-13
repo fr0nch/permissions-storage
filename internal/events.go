@@ -46,9 +46,18 @@ func (p *PermissionsStoragePlugin) OnUserRequest(pluginID int64, targetID uint64
 	}
 
 	// Doubtful... but OK...
+	userGroups := user.Groups[:0]
 	for i := range user.Groups {
-		user.Groups[i].Group = p.GroupByID(user.Groups[i].ID)
+		group := p.GroupByID(user.Groups[i].ID)
+		if group == nil {
+			p.log.Warnf("Skipping group %d of user %d: group not loaded", user.Groups[i].ID, targetID)
+			continue
+		}
+
+		user.Groups[i].Group = group
+		userGroups = append(userGroups, user.Groups[i])
 	}
+	user.Groups = userGroups
 
 	// TODO: Figure out a better way to implement this in the future.
 	if permissions.UserExists(targetID) != permissions.PlayerState_NotFound {
@@ -60,9 +69,9 @@ func (p *PermissionsStoragePlugin) OnUserRequest(pluginID int64, targetID uint64
 	p.log.Debugf("Loading user: \n - \tUserID: %d, \n - \tGroups: %v, \n - \tPermissions: %v, \n - \tCookies: %v", user.UserID, user.Groups, user.Permissions, user.Cookies)
 
 	if len(p.groups) > 0 {
-		if p.defaultGroupID > 0 {
+		if defaultGroup := p.GroupByID(p.defaultGroupID); defaultGroup != nil {
 			p.log.Debugf("Setting user default group.")
-			permissions.AddGroup(p.PluginID, targetID, p.GroupByID(p.defaultGroupID).Name, 0, true)
+			permissions.AddGroup(p.PluginID, targetID, defaultGroup.Name, 0, true)
 		}
 		for i := range user.Groups {
 			var expires int64
@@ -265,8 +274,14 @@ func (p *PermissionsStoragePlugin) OnUserGroupChange(pluginID int64, action perm
 		return false
 	}
 
+	userGroup := p.GroupByName(group)
+	if userGroup == nil {
+		p.log.Errorf("Aborting UserGroupChange [ %v | group: '%s' ], group not found", targetID, group)
+		return false
+	}
+
 	_group := model.UserGroup{
-		Group:   p.GroupByName(group),
+		Group:   userGroup,
 		Expires: time.Unix(newTimestamp, 0),
 	}
 
@@ -284,10 +299,6 @@ func (p *PermissionsStoragePlugin) OnUserGroupChange(pluginID int64, action perm
 			return false
 		}
 	case permissions.Action_Remove:
-		if !p.config.Settings.DeleteRemovedRecords {
-			return false
-		}
-
 		err := p.storage.RemoveUserGroup(ctx, targetID, &_group)
 		if err != nil {
 			p.log.Errorf("Failed to remove group: %v", err)
@@ -355,7 +366,13 @@ func (p *PermissionsStoragePlugin) OnGroupExpiration(targetID uint64, group stri
 			return
 		}
 
-		err := p.storage.RemoveUserGroup(ctx, targetID, &model.UserGroup{Group: p.GroupByName(group)})
+		expiredGroup := p.GroupByName(group)
+		if expiredGroup == nil {
+			p.log.Errorf("Aborting GroupExpiration [ %v | group: '%s' ], group not found", targetID, group)
+			return
+		}
+
+		err := p.storage.RemoveUserGroup(ctx, targetID, &model.UserGroup{Group: expiredGroup})
 		if err != nil {
 			p.log.Errorf("Failed to remove expired group: %v", err)
 			return
@@ -432,7 +449,13 @@ func (p *PermissionsStoragePlugin) OnGroupDelete(pluginID int64, name string) bo
 		return false
 	}
 
-	var groupID = p.GroupByName(name).ID
+	group := p.GroupByName(name)
+	if group == nil {
+		p.log.Errorf("Aborting DeleteGroup [ group: '%s' ], group not found", name)
+		return false
+	}
+
+	var groupID = group.ID
 	err := p.storage.DeleteGroup(ctx, groupID)
 	if err != nil {
 		p.log.Errorf("Failed to delete group: %v", err)
@@ -458,12 +481,21 @@ func (p *PermissionsStoragePlugin) OnGroupSetParent(pluginID int64, childName st
 	defer cancel()
 
 	if err := p.storage.WaitReady(ctx); err != nil {
-		p.log.Errorf("Aborting DeleteGroup, DB not ready: %v", err)
+		p.log.Errorf("Aborting SetParent [ child: '%s' | parent: '%s' ], DB not ready: %v", childName, parentName, err)
 		return false
 	}
 
 	group := p.GroupByName(childName)
+	if group == nil {
+		p.log.Errorf("Aborting SetParent [ child: '%s' | parent: '%s' ], child group not found", childName, parentName)
+		return false
+	}
+
 	parentGroup := p.GroupByName(parentName)
+	if parentGroup == nil {
+		p.log.Errorf("Aborting SetParent [ child: '%s' | parent: '%s' ], parent group not found", childName, parentName)
+		return false
+	}
 
 	err := p.storage.SetParentGroup(ctx, group.ID, parentGroup.ID)
 	if err != nil {
@@ -489,10 +521,15 @@ func (p *PermissionsStoragePlugin) OnGroupPermissionChange(pluginID int64, actio
 	defer cancel()
 
 	if err := p.storage.WaitReady(ctx); err != nil {
-		p.log.Errorf("Aborting DeleteGroup, DB not ready: %v", err)
+		p.log.Errorf("Aborting GroupPermissionChange [ group: '%s' | perm: '%s' ], DB not ready: %v", groupName, perm, err)
+		return false
 	}
 
 	group := p.GroupByName(groupName)
+	if group == nil {
+		p.log.Errorf("Aborting GroupPermissionChange [ group: '%s' | perm: '%s' ], group not found", groupName, perm)
+		return false
+	}
 
 	permission := model.Permission{
 		Name:  perm,
@@ -540,16 +577,22 @@ func (p *PermissionsStoragePlugin) OnGroupOptionChange(pluginID int64, groupName
 	defer cancel()
 
 	if err := p.storage.WaitReady(ctx); err != nil {
-		p.log.Errorf("Aborting DeleteGroup, DB not ready: %v", err)
+		p.log.Errorf("Aborting GroupOptionChange [ group: '%s' | option: '%s' ], DB not ready: %v", groupName, optionName, err)
 		return false
 	}
 
-	err := p.storage.SetOption(ctx, p.GroupByName(groupName).ID, optionName, value)
+	group := p.GroupByName(groupName)
+	if group == nil {
+		p.log.Errorf("Aborting GroupOptionChange [ group: '%s' | option: '%s' ], group not found", groupName, optionName)
+		return false
+	}
+
+	err := p.storage.SetOption(ctx, group.ID, optionName, value)
 	if err != nil {
 		p.log.Errorf("Failed to set group option: %v", err)
 		return false
 	}
 	//}()
 
-	return false
+	return true
 }
