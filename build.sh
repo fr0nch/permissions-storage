@@ -1,29 +1,48 @@
 #!/usr/bin/env bash
 set -e
 
-MODE=${1:-release}
+MODE="release"
+USE_DOCKER=0
+IMAGE="steamrt-go-builder"
 
-MANIFEST="assets/permissions-storage.pplugin"
-RELEASE_MANIFEST=".github/release-please-manifest.json"
+for arg in "$@"; do
+  case "$arg" in
+    debug|release) MODE="$arg" ;;
+    --docker) USE_DOCKER=1 ;;
+  esac
+done
+
+if [ "$USE_DOCKER" = "1" ]; then
+  if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "Image $IMAGE not found, building it..."
+    docker build -t "$IMAGE" .
+  fi
+
+  docker run --rm \
+    --platform linux/amd64 \
+    --user "$(id -u):$(id -g)" \
+    -v "$(pwd):/app" \
+    -w /app \
+    "$IMAGE" "$MODE"
+  exit 0
+fi
+
+MANIFEST="permissions-storage.pplugin"
 
 NAME=$(jq -r '.name' "$MANIFEST")
 ENTRY=$(jq -r '.entry' "$MANIFEST")
 FILENAME=$(basename "$ENTRY")
 FILENAME=${FILENAME#lib}
 
-if [ -f "$RELEASE_MANIFEST" ]; then
-  VERSION=$(jq -r '."."' "$RELEASE_MANIFEST")
-else
-  BASE_VERSION=$(jq -r '.version // "0.0.0"' "$MANIFEST")
+VERSION=$(jq -r '.version' "$MANIFEST")
 
+if [ "$MODE" = "debug" ]; then
   GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || true)
   if [ -n "$GIT_HASH" ]; then
-    BUILD="+git.$GIT_HASH"
+    VERSION="${VERSION}-dev+git.$GIT_HASH"
   else
-    BUILD="+$(date +%Y%m%d)"
+    VERSION="${VERSION}-dev+$(date +%Y%m%d)"
   fi
-
-  VERSION="${BASE_VERSION}-dev${BUILD}"
 fi
 
 OUTDIR="build/$MODE"
