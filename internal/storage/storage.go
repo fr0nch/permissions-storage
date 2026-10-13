@@ -38,7 +38,7 @@ type Group interface {
 	DeleteGroup(ctx context.Context, groupID model.GroupID) error
 	AddGroupPermission(ctx context.Context, groupID model.GroupID, permission *model.Permission, wildcard bool) error
 	RemoveGroupPermission(ctx context.Context, groupID model.GroupID, permission *model.Permission) error
-	SetParentGroup(ctx context.Context, groupID model.GroupID, inheritanceID model.GroupID) error
+	SetParentGroup(ctx context.Context, groupID model.GroupID, inheritanceID *model.GroupID) error
 	SetOption(ctx context.Context, groupID model.GroupID, key string, value any) error
 }
 

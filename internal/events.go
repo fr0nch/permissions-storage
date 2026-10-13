@@ -491,19 +491,25 @@ func (p *PermissionsStoragePlugin) OnGroupSetParent(pluginID int64, childName st
 		return false
 	}
 
-	parentGroup := p.GroupByName(parentName)
-	if parentGroup == nil {
-		p.log.Errorf("Aborting SetParent [ child: '%s' | parent: '%s' ], parent group not found", childName, parentName)
-		return false
+	var parentID *model.GroupID
+
+	if parentName != "" {
+		parentGroup := p.GroupByName(parentName)
+		if parentGroup == nil {
+			p.log.Errorf("Aborting SetParent [ child: '%s' | parent: '%s' ], parent group not found", childName, parentName)
+			return false
+		}
+
+		parentID = &parentGroup.ID
 	}
 
-	err := p.storage.SetParentGroup(ctx, group.ID, parentGroup.ID)
+	err := p.storage.SetParentGroup(ctx, group.ID, parentID)
 	if err != nil {
 		p.log.Errorf("Failed to set group parent: %v", err)
 		return false
 	}
 
-	group.InheritanceID = &parentGroup.ID
+	group.InheritanceID = parentID
 	//}()
 
 	return true

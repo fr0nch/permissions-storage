@@ -219,7 +219,7 @@ func (s *Storage) RemoveGroupPermission(ctx context.Context, groupID model.Group
 	return tx.Commit()
 }
 
-func (s *Storage) SetParentGroup(ctx context.Context, groupID model.GroupID, inheritanceID model.GroupID) error {
+func (s *Storage) SetParentGroup(ctx context.Context, groupID model.GroupID, inheritanceID *model.GroupID) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
