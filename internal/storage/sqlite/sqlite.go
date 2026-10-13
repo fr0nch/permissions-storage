@@ -31,10 +31,13 @@ type Storage struct {
 }
 
 func NewStorage(dsn url.URL, settings *config.Settings, logger *logger.Logger) (*Storage, error) {
+	local := *settings
+	local.ServerID = 0
+
 	s := new(Storage{
 		ready:    make(chan struct{}),
 		failed:   make(chan struct{}),
-		settings: settings,
+		settings: &local,
 		log:      logger,
 	})
 
