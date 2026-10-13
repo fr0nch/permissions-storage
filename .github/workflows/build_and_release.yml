@@ -8,13 +8,11 @@ on:
       - LICENSE
       - README.md
       - README_ru.md
-      - test.sh
   pull_request:
     paths-ignore:
       - LICENSE
       - README.md
       - README_ru.md
-      - test.sh
 
 env:
   BUILD_TYPE: Release
@@ -41,7 +39,7 @@ jobs:
 
       - name: Generate Release
         if: ${{ !env.ACT }}
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -74,7 +72,7 @@ jobs:
     container: ${{ matrix.container }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -91,7 +89,7 @@ jobs:
           ln -sf /usr/bin/gcc-14 /usr/bin/gcc && ln -sf /usr/bin/g++-14 /usr/bin/g++
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -119,7 +117,7 @@ jobs:
           find build/ -type f \( -name "*.h" -o -name "*.exp" -o -name "*.ilk" -o -name "*.lib" -o -name "*.pdb" \) -delete
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.PROJECT_NAME }}-build-${{ matrix.platform }}-${{ needs.setup.outputs.github_sha_short }}
           path: build/
@@ -140,14 +138,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           sparse-checkout: |
             conda
           sparse-checkout-cone-mode: false
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ env.PROJECT_NAME }}-build-${{ matrix.platform }}-${{ needs.setup.outputs.github_sha_short }}
           path: conda/
@@ -178,7 +176,7 @@ jobs:
           find conda-bld -type f \( -name "*.tar.bz2" -o -name "*.conda" \) -exec cp {} "build/package/${{ matrix.platform }}/" \;
 
       - name: Upload conda package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: conda-package-${{ matrix.platform }}-${{ needs.setup.outputs.github_sha_short }}
           path: build/package/${{ matrix.platform }}/
@@ -186,7 +184,7 @@ jobs:
 
       - name: Upload release asset
         if: ${{ !env.ACT }}
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         id: release
         with:
           tag_name: ${{ needs.setup.outputs.tag_name }}
@@ -208,7 +206,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           sparse-checkout: |
             .github/pages
@@ -220,7 +218,7 @@ jobs:
           path: source
 
       - name: Setup Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v4
         with:
           miniforge-version: latest
 
@@ -251,16 +249,16 @@ jobs:
           | grep -E "(\.tar\.bz2|\.conda)$" > urls.txt
       
           # separate by platform
-          grep linux-64 urls.txt > linux.txt || true
-          grep win-64 urls.txt > win.txt || true
-          grep -v -E "(linux-64|win-64)" urls.txt > noarch.txt || true
+          grep -E "linux[-_]64" urls.txt > linux.txt || true
+          grep -E "win[-_]64" urls.txt > win.txt || true
+          grep -v -E "(linux|win)[-_]64" urls.txt > noarch.txt || true
       
           [ -s linux.txt ] && aria2c -x4 -s4 -j4 -i linux.txt -d build/repo/linux-64/ --continue
           [ -s win.txt ]   && aria2c -x4 -s4 -j4 -i win.txt -d build/repo/win-64/   --continue
           [ -s noarch.txt ]&& aria2c -x4 -s4 -j4 -i noarch.txt -d build/repo/noarch/ --continue
 
       - name: Download conda packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: conda-package-*
           path: artifacts/
@@ -338,11 +336,11 @@ jobs:
           EOF
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: build/repo
 
       - name: Deploy to GitHub Pages
         if: ${{ !env.ACT }}
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
