@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS servers (
     default_group int(11) DEFAULT NULL,
     PRIMARY KEY (id),
     KEY fk_server_default_group (default_group),
-    CONSTRAINT fk_server_default_group FOREIGN KEY (default_group) REFERENCES groups (id) ON DELETE SET NULL ON UPDATE NO ACTION
+    CONSTRAINT fk_server_default_group FOREIGN KEY (default_group) REFERENCES groups (id) ON DELETE RESTRICT ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS server_groups (
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS server_groups (
     UNIQUE KEY unique_server_groups (server_id,group_id) USING BTREE,
     KEY server_id (server_id),
     KEY group_id (group_id) USING BTREE,
-    CONSTRAINT fk_server_groups_groups FOREIGN KEY (group_id) REFERENCES groups (id) ON DELETE NO ACTION ON UPDATE NO ACTION,
+    CONSTRAINT fk_server_groups_groups FOREIGN KEY (group_id) REFERENCES groups (id) ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT fk_server_groups_servers FOREIGN KEY (server_id) REFERENCES servers (id) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS server_user_groups (
     UNIQUE KEY unique_server_user_groups (server_id,steamid64,group_id),
     KEY fk_server_user_groups_steamid64 (steamid64),
     KEY fk_server_user_groups_server_groups (server_id,group_id),
-    CONSTRAINT fk_server_user_groups_server_groups FOREIGN KEY (server_id, group_id) REFERENCES server_groups (server_id, group_id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    CONSTRAINT fk_server_user_groups_server_groups FOREIGN KEY (server_id, group_id) REFERENCES server_groups (server_id, group_id) ON DELETE RESTRICT ON UPDATE NO ACTION,
     CONSTRAINT fk_server_user_groups_steamid64 FOREIGN KEY (steamid64) REFERENCES users (steamid64) ON DELETE CASCADE ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

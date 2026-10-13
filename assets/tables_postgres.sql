@@ -72,16 +72,19 @@ CREATE TABLE IF NOT EXISTS servers (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     address VARCHAR(32) DEFAULT NULL,
-    default_group INTEGER DEFAULT NULL REFERENCES groups(id) ON DELETE SET NULL
+    default_group INTEGER DEFAULT NULL,
+    CONSTRAINT fk_server_default_group FOREIGN KEY (default_group) REFERENCES groups(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX idx_servers_default_group ON servers(default_group);
 
 CREATE TABLE IF NOT EXISTS server_groups (
     id SERIAL PRIMARY KEY,
-    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE NO ACTION,
-    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE NO ACTION,
-    UNIQUE(server_id, group_id)
+    server_id INTEGER NOT NULL,
+    group_id INTEGER NOT NULL,
+    UNIQUE(server_id, group_id),
+    CONSTRAINT fk_server_groups_servers FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE NO ACTION,
+    CONSTRAINT fk_server_groups_groups FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_server_groups_server_id ON server_groups(server_id);
@@ -91,16 +94,21 @@ INSERT INTO groups (id, name, priority, inheritance_id) VALUES (1, 'Default', 0,
 INSERT INTO servers (id, name, address, default_group) VALUES (0, 'All Servers', null, 1);
 INSERT INTO server_groups (id, server_id, group_id) VALUES (1, 0, 1);
 
+SELECT setval(pg_get_serial_sequence('groups', 'id'), (SELECT MAX(id) FROM groups));
+SELECT setval(pg_get_serial_sequence('servers', 'id'), GREATEST((SELECT MAX(id) FROM servers), 1));
+SELECT setval(pg_get_serial_sequence('server_groups', 'id'), (SELECT MAX(id) FROM server_groups));
+
 CREATE TABLE IF NOT EXISTS server_user_groups (
     id SERIAL PRIMARY KEY,
-    steamid64 BIGINT NOT NULL REFERENCES users(steamid64) ON DELETE CASCADE,
+    steamid64 BIGINT NOT NULL,
     server_id INTEGER NOT NULL,
     group_id INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires TIMESTAMPTZ NULL DEFAULT NULL,
     updated TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(server_id, steamid64, group_id),
-    FOREIGN KEY(server_id, group_id) REFERENCES server_groups(server_id, group_id) ON DELETE CASCADE
+    CONSTRAINT fk_server_user_groups_steamid64 FOREIGN KEY (steamid64) REFERENCES users(steamid64) ON DELETE CASCADE,
+    CONSTRAINT fk_server_user_groups_server_groups FOREIGN KEY (server_id, group_id) REFERENCES server_groups(server_id, group_id) ON DELETE RESTRICT
 );
 
 CREATE INDEX idx_server_user_groups_steamid64 ON server_user_groups(steamid64);

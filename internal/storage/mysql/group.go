@@ -3,9 +3,13 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"permissions-storage/internal/pkg/model"
+	"permissions-storage/internal/storage"
 	"strings"
+
+	driver "github.com/go-sql-driver/mysql"
 )
 
 func (s *Storage) LoadGroups(ctx context.Context) (groups []*model.Group, defaultGroupID model.GroupID, err error) {
@@ -109,14 +113,48 @@ func (s *Storage) DeleteGroup(ctx context.Context, groupID model.GroupID) error 
 
 	defer tx.Rollback()
 
-	var query = `DELETE FROM groups WHERE id = ?`
+	var query = `DELETE FROM server_user_groups
+				 WHERE group_id = ? AND NOT (expires IS NULL OR expires = 0 OR expires > CURRENT_TIMESTAMP())`
 
-	_, err = tx.ExecContext(ctx, query, groupID)
+	if _, err = tx.ExecContext(ctx, query, groupID); err != nil {
+		return fmt.Errorf("could not delete expired group users: %w", err)
+	}
+
+	query = `DELETE FROM groups WHERE id = ?`
+
+	res, err := tx.ExecContext(ctx, query, groupID)
 	if err != nil {
-		return fmt.Errorf("could not delete group: %w", err)
+		return fmt.Errorf("could not delete group %d: %w", groupID, deleteGroupError(err))
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("group %d: %w", groupID, storage.ErrGroupNotFound)
 	}
 
 	return tx.Commit()
+}
+
+func deleteGroupError(err error) error {
+	const rowIsReferenced = 1451 // ER_ROW_IS_REFERENCED_2
+
+	var myErr *driver.MySQLError
+	if !errors.As(err, &myErr) || myErr.Number != rowIsReferenced {
+		return err
+	}
+
+	switch {
+	case strings.Contains(myErr.Message, "`fk_server_user_groups_server_groups`"):
+		return storage.ErrGroupHasUsers
+	case strings.Contains(myErr.Message, "`fk_server_default_group`"):
+		return storage.ErrGroupIsDefault
+	}
+
+	return err
 }
 
 func (s *Storage) AddGroupPermission(ctx context.Context, groupID model.GroupID, permission *model.Permission, wildcard bool) error {
@@ -217,7 +255,7 @@ func (s *Storage) SetOption(ctx context.Context, groupID model.GroupID, key stri
 			  VALUES (?, ?, ?)
 			  ON DUPLICATE KEY UPDATE option_value = ?`
 
-	_, err = tx.ExecContext(ctx, query, groupID, key, value, value)
+	_, err = tx.ExecContext(ctx, query, groupID, key, storage.ToString(value), storage.ToString(value))
 	if err != nil {
 		return fmt.Errorf("could not setup option for group: %w", err)
 	}
@@ -300,7 +338,7 @@ func (s *Storage) loadGroupOptions(ctx context.Context, tx *sql.Tx, groupIDs []m
 	in, args := makeInClause(groupIDs)
 
 	query := fmt.Sprintf(`
-		SELECT group_id, option_key, option_value
+		SELECT group_id, option_key, COALESCE(option_value, '')
 		FROM group_options
 		WHERE group_id IN (%s)
 		ORDER BY group_id;

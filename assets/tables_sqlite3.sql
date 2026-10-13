@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS servers (
     name TEXT NOT NULL,
     address TEXT DEFAULT NULL,
     default_group INTEGER DEFAULT NULL,
-    FOREIGN KEY (default_group) REFERENCES groups (id) ON DELETE SET NULL
+    FOREIGN KEY (default_group) REFERENCES groups (id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_servers_default_group ON servers(default_group);
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS server_groups (
     group_id INTEGER NOT NULL,
     UNIQUE(server_id, group_id),
     FOREIGN KEY (server_id) REFERENCES servers (id) ON DELETE NO ACTION,
-    FOREIGN KEY (group_id) REFERENCES groups (id) ON DELETE NO ACTION
+    FOREIGN KEY (group_id) REFERENCES groups (id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_server_groups_server_id ON server_groups(server_id);
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS server_user_groups (
     updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(server_id, steamid64, group_id),
     FOREIGN KEY (steamid64) REFERENCES users (steamid64) ON DELETE CASCADE,
-    FOREIGN KEY (server_id, group_id) REFERENCES server_groups (server_id, group_id) ON DELETE CASCADE
+    FOREIGN KEY (server_id, group_id) REFERENCES server_groups (server_id, group_id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_server_user_groups_steamid64 ON server_user_groups(steamid64);

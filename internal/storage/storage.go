@@ -2,7 +2,15 @@ package storage
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"permissions-storage/internal/pkg/model"
+)
+
+var (
+	ErrGroupNotFound  = errors.New("group not found")
+	ErrGroupHasUsers  = errors.New("group has users")
+	ErrGroupIsDefault = errors.New("group is the default group of a server")
 )
 
 type Storage interface {
@@ -21,7 +29,7 @@ type User interface {
 	RemoveUserPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error
 	AddUserGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error
 	RemoveUserGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error
-	SetCookie(ctx context.Context, userID model.UserID, key string, value any)
+	SetCookie(userID model.UserID, key string, value any)
 }
 
 type Group interface {
@@ -32,4 +40,17 @@ type Group interface {
 	RemoveGroupPermission(ctx context.Context, groupID model.GroupID, permission *model.Permission) error
 	SetParentGroup(ctx context.Context, groupID model.GroupID, inheritanceID model.GroupID) error
 	SetOption(ctx context.Context, groupID model.GroupID, key string, value any) error
+}
+
+func ToString(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return fmt.Sprint(v)
+	}
 }

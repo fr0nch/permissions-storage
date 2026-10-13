@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"permissions-storage/internal/pkg/model"
 	"permissions-storage/internal/storage"
 	"permissions-storage/internal/storage/mysql"
+	"permissions-storage/internal/storage/postgres"
+	"permissions-storage/internal/storage/sqlite"
 
 	"github.com/fr0nch/logger"
 	"github.com/untrustedmodders/go-plugify"
@@ -36,7 +39,7 @@ func (p *PermissionsStoragePlugin) OnPluginStart() error {
 	var err error
 	p.log, err = logger.NewWithOptions(logger.Options{PluginName: p.Plugin.Name(), Folder: "permissions"})
 	if err != nil {
-		return fmt.Errorf("Failed to initialize logger: " + err.Error())
+		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
 	p.config = config.NewConfig()
@@ -57,37 +60,35 @@ func (p *PermissionsStoragePlugin) OnPluginStart() error {
 	)
 
 	if err != nil {
-		return fmt.Errorf("Failed to initialize config: " + err.Error())
+		return fmt.Errorf("failed to initialize config: %w", err)
 	}
 
 	//fmt.Println(p.config.Settings)
 
 	dsn, err := BuildDSN(p.config.Settings)
 	if err != nil {
-		return fmt.Errorf("Failed to initialize database connection: " + err.Error())
+		return fmt.Errorf("failed to initialize database connection: %w", err)
 	}
 
 	switch dsn.Scheme {
 	case "mysql":
 		p.storage, err = mysql.NewStorage(dsn, p.config.Settings, p.log)
 		break
-		//case "postgres":
-		//	p.storage, err = postgres.NewStorage(dsn, p.config.Settings, p.log)
-		//	break
-		//case "sqlite3":
-		//	p.storage, err = sqlite.NewStorage(dsn, p.config.Settings, p.log)
-		//	break
+	case "postgres":
+		p.storage, err = postgres.NewStorage(dsn, p.config.Settings, p.log)
+		break
+	case "sqlite3":
+		p.storage, err = sqlite.NewStorage(dsn, p.config.Settings, p.log)
+		break
 	}
 
 	if err != nil {
-		return fmt.Errorf("Failed to initialize storage: " + err.Error())
+		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	//if dsn.Scheme == "sqlite3" {
-	//	if err = p.storage.CreateTables(context.Background()); err != nil {
-	//		return fmt.Errorf("Failed to create tables: " + err.Error())
-	//	}
-	//}
+	if err = p.storage.CreateTables(context.Background()); err != nil {
+		return fmt.Errorf("failed to create tables: %w", err)
+	}
 
 	p.RegisteringEvents()
 	return nil
@@ -141,7 +142,7 @@ func BuildDSN(settings *config.Settings) (url.URL, error) {
 		u.User = nil
 		u.Path = filepath.Join(plugify.DataDir(), "permissions", "permissions.db")
 	default:
-		return url.URL{}, fmt.Errorf("unsupported database type:" + settings.StorageMethod)
+		return url.URL{}, fmt.Errorf("unsupported database type: %s", settings.StorageMethod)
 	}
 
 	u.RawQuery = values.Encode()

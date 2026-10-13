@@ -3,11 +3,15 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"permissions-storage/internal/pkg/model"
+	"permissions-storage/internal/storage"
 	"slices"
 	"strings"
 	"time"
+
+	driver "github.com/go-sql-driver/mysql"
 )
 
 type Cookie struct {
@@ -124,14 +128,14 @@ func (s *Storage) RemoveUserPermission(ctx context.Context, userID model.UserID,
 
 	var query string
 	if s.settings.DeleteRemovedRecords {
-		query = `DELETE FROM server_user_permissions WHERE steamid64 = ? AND server_id = ? AND permission = ?`
+		query = `DELETE FROM server_user_permissions WHERE steamid64 = ? AND permission = ?`
 	} else {
 		query = `UPDATE server_user_permissions
 				 SET expires = CURRENT_TIMESTAMP, updated = CURRENT_TIMESTAMP
-				 WHERE steamid64 = ? AND server_id = ? AND permission = ?`
+				 WHERE steamid64 = ? AND permission = ?`
 	}
 
-	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, permission.Name)
+	_, err = tx.ExecContext(ctx, query, userID, permission.Name)
 	if err != nil {
 		return fmt.Errorf("could not remove/deactivate permission: %w", err)
 	}
@@ -169,14 +173,14 @@ func (s *Storage) RemoveUserGroup(ctx context.Context, userID model.UserID, grou
 
 	var query string
 	if s.settings.DeleteRemovedRecords {
-		query = `DELETE FROM server_user_groups WHERE steamid64 = ? AND server_id = ? AND group_id = ?`
+		query = `DELETE FROM server_user_groups WHERE steamid64 = ? AND group_id = ?`
 	} else {
 		query = `UPDATE server_user_groups
 				 SET expires = CURRENT_TIMESTAMP, updated = CURRENT_TIMESTAMP
-				 WHERE steamid64 = ? AND server_id = ? AND group_id = ?`
+				 WHERE steamid64 = ? AND group_id = ?`
 	}
 
-	_, err = tx.ExecContext(ctx, query, userID, s.settings.ServerID, group.ID)
+	_, err = tx.ExecContext(ctx, query, userID, group.ID)
 	if err != nil {
 		return fmt.Errorf("could not remove/deactivate group: %w", err)
 	}
@@ -184,8 +188,8 @@ func (s *Storage) RemoveUserGroup(ctx context.Context, userID model.UserID, grou
 	return tx.Commit()
 }
 
-func (s *Storage) SetCookie(ctx context.Context, userID model.UserID, key string, value any) {
-	s.addQuery(ctx, Cookie{
+func (s *Storage) SetCookie(userID model.UserID, key string, value any) {
+	s.addQuery(Cookie{
 		userID: userID,
 		key:    key,
 		value:  value,
@@ -209,7 +213,8 @@ func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 			group_id,
 			expires
 		FROM server_user_groups
-		WHERE steamid64 = ? AND server_id = ? AND (expires IS NULL OR expires = 0 OR expires > CURRENT_TIMESTAMP())
+		WHERE steamid64 = ? AND server_id IN (?, 0) AND (expires IS NULL OR expires = 0 OR expires > CURRENT_TIMESTAMP())
+		ORDER BY server_id
 	`
 
 	rows, err := tx.QueryContext(ctx, query, UserID, serverID)
@@ -220,6 +225,8 @@ func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 	defer rows.Close()
 
 	var groups = make([]model.UserGroup, 0)
+
+	var indexByID = make(map[model.GroupID]int)
 
 	for rows.Next() {
 		var group model.UserGroup
@@ -240,6 +247,13 @@ func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 		}
 
 		s.log.Debugf("Loading group '%s'[id: %d] for user: %d\n", group.Name, group.ID, UserID)
+
+		if i, ok := indexByID[groupID]; ok {
+			groups[i] = group
+			continue
+		}
+
+		indexByID[groupID] = len(groups)
 		groups = append(groups, group)
 	}
 
@@ -253,7 +267,8 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 			state,
 			expires
 		FROM server_user_permissions 
-		WHERE steamid64 = ? AND server_id = ? AND (expires IS NULL OR expires = 0 OR expires > CURRENT_TIMESTAMP())
+		WHERE steamid64 = ? AND server_id IN (?, 0) AND (expires IS NULL OR expires = 0 OR expires > CURRENT_TIMESTAMP())
+		ORDER BY server_id
 	`
 
 	rows, err := tx.QueryContext(ctx, query, UserID, serverID)
@@ -264,6 +279,8 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 	defer rows.Close()
 
 	var permissions = make([]model.UserPermission, 0)
+
+	var indexByName = make(map[string]int)
 
 	for rows.Next() {
 		var permission model.UserPermission
@@ -281,6 +298,13 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 		}
 
 		s.log.Debugf("Loading permission '%s'[state:%v] for user: %d\n", permission.Name, permission.State, UserID)
+
+		if i, ok := indexByName[permission.Name]; ok {
+			permissions[i] = permission
+			continue
+		}
+
+		indexByName[permission.Name] = len(permissions)
 		permissions = append(permissions, permission)
 	}
 
@@ -291,7 +315,7 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 
 func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) (model.Cookie, error) {
 	query := `
-		SELECT option_key, option_value 
+		SELECT option_key, COALESCE(option_value, '')
 		FROM user_cookies 
 		WHERE steamid64 = ? AND server_id = ?
 	`
@@ -321,11 +345,11 @@ func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int,
 	return cookies, rows.Err()
 }
 
-func (s *Storage) addQuery(ctx context.Context, cookie Cookie) {
+func (s *Storage) addQuery(cookie Cookie) {
 	s.mu.Lock()
 
 	index := slices.IndexFunc(s.cookies, func(c Cookie) bool {
-		return c.key == cookie.key
+		return c.userID == cookie.userID && c.key == cookie.key
 	})
 
 	if index != -1 {
@@ -335,31 +359,59 @@ func (s *Storage) addQuery(ctx context.Context, cookie Cookie) {
 	}
 
 	if s.delayedQueryTimer != nil {
-		s.delayedQueryTimer.Reset(5 * time.Second)
 		s.mu.Unlock()
 		return
 	}
 
-	s.delayedQueryTimer = time.AfterFunc(5*time.Second, func() {
-		tmpCookies := make([]Cookie, len(s.cookies))
-
-		s.mu.Lock()
-		copy(tmpCookies, s.cookies)
-		clear(s.cookies)
-		s.mu.Unlock()
-
-		for _, _cookie := range tmpCookies {
-			err := s.setCookie(ctx, _cookie.userID, _cookie.key, _cookie.value)
-			if err != nil {
-				s.log.Errorf("Error setting cookie: %v\n", err)
-			}
-		}
-	})
+	s.delayedQueryTimer = time.AfterFunc(5*time.Second, s.execQueries)
 
 	s.mu.Unlock()
 }
 
-func (s *Storage) setCookie(ctx context.Context, userID model.UserID, key string, value any) error {
+func (s *Storage) execQueries() {
+	s.mu.Lock()
+	cookies := s.cookies
+	s.cookies = nil
+	s.delayedQueryTimer = nil
+	s.mu.Unlock()
+
+	if len(cookies) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := s.setCookies(ctx, cookies); err != nil {
+		s.log.Errorf("Error setting cookies: %v\n", err)
+		s.requeueCookies(cookies)
+	}
+}
+
+func (s *Storage) requeueCookies(cookies []Cookie) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return
+	}
+
+	for _, cookie := range cookies {
+		queued := slices.ContainsFunc(s.cookies, func(c Cookie) bool {
+			return c.userID == cookie.userID && c.key == cookie.key
+		})
+
+		if !queued {
+			s.cookies = append(s.cookies, cookie)
+		}
+	}
+
+	if s.delayedQueryTimer == nil {
+		s.delayedQueryTimer = time.AfterFunc(5*time.Second, s.execQueries)
+	}
+}
+
+func (s *Storage) setCookies(ctx context.Context, cookies []Cookie) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -371,17 +423,35 @@ func (s *Storage) setCookie(ctx context.Context, userID model.UserID, key string
 			  VALUES (?, ?, ?, ?)
 			  ON DUPLICATE KEY UPDATE option_value = ?`
 
+	stmt, err := tx.PrepareContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+
+	defer stmt.Close()
+
 	var serverID int
 	if !s.settings.GlobalCookie {
 		serverID = s.settings.ServerID
 	}
 
-	_, err = tx.ExecContext(ctx, query, userID, serverID, key, value, value)
-	if err != nil {
-		return fmt.Errorf("could not setup cookie: %w", err)
+	for _, cookie := range cookies {
+		value := storage.ToString(cookie.value)
+		if _, err := stmt.ExecContext(ctx, cookie.userID, serverID, cookie.key, value, value); err != nil {
+			if !isConstraintViolation(err) {
+				return fmt.Errorf("set cookie '%s' for user %d: %w", cookie.key, cookie.userID, err)
+			}
+
+			s.log.Errorf("Error setting cookie '%s' for user %d: %v\n", cookie.key, cookie.userID, err)
+		}
 	}
 
 	return tx.Commit()
+}
+
+func isConstraintViolation(err error) bool {
+	var myErr *driver.MySQLError
+	return errors.As(err, &myErr) && string(myErr.SQLState[:2]) == "23"
 }
 
 func expiry(t time.Time) any {

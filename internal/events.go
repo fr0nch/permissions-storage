@@ -3,8 +3,9 @@ package internal
 import (
 	"context"
 	"permissions-storage/internal/pkg/model"
-	"permissions-storage/internal/pkg/permissions"
 	"time"
+
+	permissions "github.com/fr0nch/go-plugify-permissions"
 )
 
 const contextTimeout = 15 * time.Second
@@ -312,7 +313,7 @@ func (p *PermissionsStoragePlugin) OnUserCookieChange(pluginID int64, targetID u
 		return false
 	}
 
-	p.storage.SetCookie(ctx, targetID, name, cookie)
+	p.storage.SetCookie(targetID, name, cookie)
 	//}()
 
 	return true
