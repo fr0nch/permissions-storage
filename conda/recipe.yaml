@@ -1,0 +1,44 @@
+context:
+  name: permissions-storage
+  version: ${{ env.get("PACKAGE_VERSION") }}
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: .
+  use_gitignore: false
+
+build:
+  number: 0
+  string: ${{ target_platform | replace("-", "_") }}
+  dynamic_linking:
+    missing_dso_allowlist:
+      - if: linux
+        then:
+          - "*/ld-linux*.so.*"
+          - "*/libc.so.*"
+          - "*/libm.so.*"
+          - "*/libdl.so.*"
+          - "*/libpthread.so.*"
+          - "*/librt.so.*"
+
+requirements:
+  run:
+    - if: linux
+      then: __glibc >=2.28
+
+about:
+  homepage: https://github.com/${{ env.get("GITHUB_REPOSITORY", default="fr0nch/permissions-storage") }}
+  license: MIT
+  license_file: LICENSE
+  summary: Storage extension for the Plugify permissions plugin
+  description: |
+    Keeps groups, user permissions, user groups and cookies of the permissions plugin in MySQL/MariaDB, PostgreSQL or SQLite.
+  documentation: https://github.com/${{ env.get("GITHUB_REPOSITORY", default="fr0nch/permissions-storage") }}/blob/main/README.md
+  repository: https://github.com/${{ env.get("GITHUB_REPOSITORY", default="fr0nch/permissions-storage") }}
+
+extra:
+  recipe-maintainers:
+    - ${{ env.get("GITHUB_ACTOR", default="fr0nch") }}

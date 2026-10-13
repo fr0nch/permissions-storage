@@ -1,5 +1,5 @@
 @echo off
-REM bld.bat - For Windows builds
+REM build.bat - For Windows builds
 
 if not exist "%PREFIX%\bin" mkdir "%PREFIX%\bin"
 
