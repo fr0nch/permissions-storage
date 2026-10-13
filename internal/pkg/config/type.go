@@ -29,8 +29,6 @@ type Database struct {
 	Schema string `yaml:"schema" head_comment:"PostgreSQL schema (namespace for tables)\n- Only used when using PostgreSQL storage. Ignored for MySQL and SQLite.\n- Default: public\n- Set this to separate plugin data inside one database"`
 
 	Params map[string]string `yaml:"params" head_comment:"This setting allows you to define additional DSN parameters for the database connection.\n \nBy default for MySQL, the following options are applied automatically:\n - parseTime=true    : ensures proper parsing of DATE/TIME columns into time values\n - loc=Local         : sets the timezone for time values to the local system timezone\n \nOptional parameters you may want to include:\n - sslmode=disable   : for PostgreSQL, disables SSL (only if you understand the security implications)\n - _journal_mode=WAL : for SQLite, enables WAL mode for better concurrency\n - busy_timeout=5000 : for SQLite, sets a timeout for database locks (milliseconds)\n \nAdditional MySQL options you might set if needed:\n - collation=utf8mb4_general_ci : ensure full UTF-8 support including emojis\n - timeout=5s                  : set connection timeout\n \nExample usage:\nparams:\n sslmode: disable\n _journal_mode: WAL\n busy_timeout: 5000"`
-
-	TablePrefix string `yaml:"table_prefix" head_comment:"The prefix for all Plugify Permissions SQL tables.\n \n- This only applies for remote SQL storage types (MySQL, MariaDB, etc).\n- Change this if you want to use different tables for different servers."`
 }
 
 type Settings struct {

@@ -54,7 +54,6 @@ func (p *PermissionsStoragePlugin) OnPluginStart() error {
 					MaximumLifetime:     1800,
 					MaximumIdleLifetime: 300,
 				},
-				TablePrefix: "perms_",
 			},
 		},
 	)

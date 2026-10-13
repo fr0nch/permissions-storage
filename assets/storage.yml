@@ -106,9 +106,3 @@ data:
     #  _journal_mode: WAL
     #  busy_timeout: 5000
     params: {}
-    
-    # The prefix for all Plugify Permissions SQL tables.
-    #  
-    # - This only applies for remote SQL storage types (MySQL, MariaDB, etc).
-    # - Change this if you want to use different tables for different servers.
-    table_prefix: perms_
