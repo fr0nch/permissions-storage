@@ -253,9 +253,9 @@ jobs:
           grep -E "win[-_]64" urls.txt > win.txt || true
           grep -v -E "(linux|win)[-_]64" urls.txt > noarch.txt || true
       
-          [ -s linux.txt ] && aria2c -x4 -s4 -j4 -i linux.txt -d build/repo/linux-64/ --continue
-          [ -s win.txt ]   && aria2c -x4 -s4 -j4 -i win.txt -d build/repo/win-64/   --continue
-          [ -s noarch.txt ]&& aria2c -x4 -s4 -j4 -i noarch.txt -d build/repo/noarch/ --continue
+          if [ -s linux.txt ]; then aria2c -x4 -s4 -j4 -i linux.txt -d build/repo/linux-64/ --continue; fi
+          if [ -s win.txt ]; then aria2c -x4 -s4 -j4 -i win.txt -d build/repo/win-64/ --continue; fi
+          if [ -s noarch.txt ]; then aria2c -x4 -s4 -j4 -i noarch.txt -d build/repo/noarch/ --continue; fi
 
       - name: Download conda packages
         uses: actions/download-artifact@v7
