@@ -66,11 +66,11 @@ func (p *PermissionsStoragePlugin) OnUserRequest(pluginID int64, targetID uint64
 
 	permissions.CreateUser(p.PluginID, targetID, user.Immunity, false, nil)
 
-	p.log.Debugf("Loading user: \n - \tUserID: %d, \n - \tGroups: %v, \n - \tPermissions: %v, \n - \tCookies: %v", user.UserID, user.Groups, user.Permissions, user.Cookies)
+	p.log.Debugf("Loading user %s[%d], immunity: %d, groups: %d, permissions: %d, cookies: %d", username, targetID, user.Immunity, len(user.Groups), len(user.Permissions), len(user.Cookies))
 
 	if len(p.groups) > 0 {
 		if defaultGroup := p.GroupByID(p.defaultGroupID); defaultGroup != nil {
-			p.log.Debugf("Setting user default group.")
+			p.log.Debugf("  group: %s (default)", defaultGroup.Name)
 			permissions.AddGroup(p.PluginID, targetID, defaultGroup.Name, 0, true)
 		}
 		for i := range user.Groups {
@@ -79,7 +79,7 @@ func (p *PermissionsStoragePlugin) OnUserRequest(pluginID int64, targetID uint64
 				expires = user.Groups[i].Expires.Unix()
 			}
 
-			p.log.Debugf("AddGroup: name='%s', expires=%d(%v)", user.Groups[i].Name, expires, user.Groups[i].Expires)
+			p.log.Debugf("  group: %s, expires: %d", user.Groups[i].Name, expires)
 			permissions.AddGroup(p.PluginID, targetID, user.Groups[i].Name, expires, true)
 		}
 	} else {
@@ -92,12 +92,12 @@ func (p *PermissionsStoragePlugin) OnUserRequest(pluginID int64, targetID uint64
 			expires = user.Permissions[i].Expires.Unix()
 		}
 
-		p.log.Debugf("AddPermission: name='%s', state='%v', expires=%d", user.Permissions[i].Name, user.Permissions[i].State, expires)
+		p.log.Debugf("  permission: %s, expires: %d", user.Permissions[i].String(), expires)
 		permissions.AddPermission(p.PluginID, targetID, user.Permissions[i].String(), expires, true)
 	}
 
 	for key, value := range user.Cookies {
-		p.log.Debugf("SetCookie: сookie='%s', value='%s'", key, value)
+		p.log.Debugf("  cookie: %s = %s", key, value)
 		permissions.SetCookie(p.PluginID, targetID, key, value, false)
 	}
 

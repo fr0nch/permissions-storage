@@ -237,7 +237,7 @@ func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, 
 			group.Expires = time.Time{}
 		}
 
-		s.log.Debugf("Loading group '%s'[id: %d] for user: %d\n", group.Name, group.ID, UserID)
+		s.log.Debugf("Loading group '%s'[id: %d] for user: %d", group.Name, group.ID, UserID)
 
 		if i, ok := indexByID[groupID]; ok {
 			groups[i] = group
@@ -288,7 +288,7 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 			permission.Expires = time.Time{}
 		}
 
-		s.log.Debugf("Loading permission '%s'[state:%v] for user: %d\n", permission.Name, permission.State, UserID)
+		s.log.Debugf("Loading permission '%s'[state:%v] for user: %d", permission.Name, permission.State, UserID)
 
 		if i, ok := indexByName[permission.Name]; ok {
 			permissions[i] = permission
@@ -299,7 +299,7 @@ func (s *Storage) loadUserPermissions(ctx context.Context, tx *sql.Tx, serverID 
 		permissions = append(permissions, permission)
 	}
 
-	s.log.Debugf("Loaded %d permissions\n", len(permissions))
+	s.log.Debugf("Loaded %d permissions", len(permissions))
 
 	return permissions, rows.Err()
 }
@@ -327,11 +327,11 @@ func (s *Storage) loadUserCookies(ctx context.Context, tx *sql.Tx, serverID int,
 			continue
 		}
 
-		s.log.Debugf("Loading cookie '%s' for user: %d\n", cookieKey, UserID)
+		s.log.Debugf("Loading cookie '%s' for user: %d", cookieKey, UserID)
 		cookies[cookieKey] = cookieValue
 	}
 
-	s.log.Debugf("Loaded %d cookies\n", len(cookies))
+	s.log.Debugf("Loaded %d cookies", len(cookies))
 
 	return cookies, rows.Err()
 }
