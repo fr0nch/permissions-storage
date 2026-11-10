@@ -1,6 +1,6 @@
 FROM registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
 
-ARG GO_VERSION=1.26.6
+ARG GO_VERSION=1.27.1
 
 ENV GOPATH=/gopath
 ENV GOMODCACHE=/gopath/pkg/mod
