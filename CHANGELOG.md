@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/fr0nch/permissions-storage/compare/v0.1.1...v1.0.0) (2026-11-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* name config after the plugin
+
+### Bug Fixes
+
+* name config after the plugin ([8b227ea](https://github.com/fr0nch/permissions-storage/commit/8b227ea64f6222cf093a1bddd5e95b71622b56df))
+
 ## [0.1.1](https://github.com/fr0nch/permissions-storage/compare/v0.1.0...v0.1.1) (2026-10-13)
 
 
