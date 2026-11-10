@@ -1,7 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,31 +17,43 @@ func NewConfig() *Config {
 	return &Config{}
 }
 
-func LoadConfig[T ConfigsType](folder, fileName string, defaultData T) (*T, error) {
-	configPath := filepath.Join(plugify.ConfigsDir(), folder, fileName)
+func LoadConfig[T ConfigsType](pluginDir, folder, fileName string, defaultData T) (*T, error) {
+	basePath := filepath.Join(pluginDir, fileName)
 
-	//fmt.Printf("Loading config from %s\n", configPath)
-	err := createConfigFile(configPath, defaultData)
+	err := createConfigFile(basePath, defaultData)
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
 
-	file, err := os.Open(configPath)
+	var config T
+	err = decodeConfigFile(basePath, &config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open config file %s: %w", configPath, err)
+		return nil, err
+	}
+
+	overridePath := filepath.Join(plugify.ConfigsDir(), folder, fileName)
+	err = decodeConfigFile(overridePath, &config)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+func decodeConfigFile(filePath string, out any) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open config file %s: %w", filePath, err)
 	}
 
 	defer file.Close()
 
-	var config T
-	err = yaml.NewDecoder(file).Decode(&config)
-	if err != nil {
-		return nil, fmt.Errorf("parsing config: %w", err)
+	err = yaml.NewDecoder(file).Decode(out)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parsing config %s: %w", filePath, err)
 	}
 
-	//fmt.Printf("New Config: %v\n", config)
-
-	return &config, nil
+	return nil
 }
 
 func createConfigFile(filePath string, defaultData any) error {

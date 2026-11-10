@@ -69,6 +69,9 @@ go build \
   -ldflags="$LDFLAGS" \
   -o "$OUTDIR/lib$FILENAME.so"
 
+cp assets/settings.yaml "$OUTDIR/$NAME.settings.yaml"
+
 echo "Output:"
 echo "$OUTDIR/lib$FILENAME.so"
 echo "$OUTDIR/$FILENAME.pplugin"
+echo "$OUTDIR/$NAME.settings.yaml"

@@ -5,5 +5,6 @@ if not exist "%PREFIX%\bin" mkdir "%PREFIX%\bin"
 
 copy bin\libpermissions-storage.dll "%PREFIX%\bin\" || exit 1
 copy permissions-storage.pplugin "%PREFIX%\" || exit 1
+copy permissions_storage.settings.yaml "%PREFIX%\" || exit 1
 
 exit 0

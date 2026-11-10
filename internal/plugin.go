@@ -43,7 +43,7 @@ func (p *PermissionsStoragePlugin) OnPluginStart() error {
 	}
 
 	p.config = config.NewConfig()
-	p.config.Settings, err = config.LoadConfig("permissions", "storage.yml",
+	p.config.Settings, err = config.LoadConfig(p.Plugin.Location(), "permissions", "permissions_storage.settings.yaml",
 		config.Settings{
 			StorageMethod: "sqlite3",
 			Data: config.Database{

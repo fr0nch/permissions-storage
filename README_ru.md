@@ -18,7 +18,7 @@
 
 ## Настройка
 
-Конфиг создаётся при первом запуске: `configs/permissions/storage.yml`.
+Конфиг по умолчанию `permissions_storage.settings.yaml` лежит рядом с манифестом плагина: он создаётся при первом запуске, если его нет, и заменяется при обновлении. Чтобы изменить настройки, положите свою копию в `configs/permissions/permissions_storage.settings.yaml`: её значения переопределяют значения по умолчанию, не указанные ключи остаются по умолчанию.
 
 | Параметр | Описание |
 |---|---|
@@ -59,7 +59,7 @@ conda install -c https://fr0nch.github.io/permissions-storage/ permissions-stora
 ./build.sh [debug|release] --docker
 ```
 
-Результат в обоих случаях: `build/<mode>/libpermissions-storage.so` и `build/<mode>/permissions-storage.pplugin`.
+Результат в обоих случаях: `build/<mode>/libpermissions-storage.so`, `build/<mode>/permissions-storage.pplugin` и `build/<mode>/permissions_storage.settings.yaml`.
 
 ## Лицензия
 

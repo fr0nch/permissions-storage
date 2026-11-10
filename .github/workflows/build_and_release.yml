@@ -112,6 +112,7 @@ jobs:
         run: |
           # The version in the manifest is set by release-please in the release PR
           cp ${{ env.PROJECT_NAME }}.pplugin build/
+          cp assets/settings.yaml build/permissions_storage.settings.yaml
 
           # Cleanup dev files
           find build/ -type f \( -name "*.h" -o -name "*.exp" -o -name "*.ilk" -o -name "*.lib" -o -name "*.pdb" \) -delete

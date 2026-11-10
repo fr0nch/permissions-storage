@@ -18,7 +18,7 @@ A [Plugify](https://github.com/untrustedmodders/plugify) plugin that stores the 
 
 ## Configuration
 
-The config is created on the first start: `configs/permissions/storage.yml`.
+The default config `permissions_storage.settings.yaml` lies next to the plugin manifest; it is created on the first start if missing and replaced on update. To change settings, put your copy into `configs/permissions/permissions_storage.settings.yaml`: its values override the defaults, keys left out keep the default values.
 
 | Setting | Description |
 |---|---|
@@ -59,7 +59,7 @@ Via Docker (the image is built automatically on first run):
 ./build.sh [debug|release] --docker
 ```
 
-Output in both cases: `build/<mode>/libpermissions-storage.so` and `build/<mode>/permissions-storage.pplugin`.
+Output in both cases: `build/<mode>/libpermissions-storage.so`, `build/<mode>/permissions-storage.pplugin` and `build/<mode>/permissions_storage.settings.yaml`.
 
 ## License
 
