@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/fr0nch/permissions-storage/compare/v1.0.0...v1.0.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* save user immunity to the database ([db9a0a3](https://github.com/fr0nch/permissions-storage/commit/db9a0a3db8889316fc298efa6db911eabff3368e))
+
 ## [1.0.0](https://github.com/fr0nch/permissions-storage/compare/v0.1.1...v1.0.0) (2026-11-10)
 
 
