@@ -17,6 +17,7 @@ func (p *PermissionsStoragePlugin) RegisteringEvents() {
 	permissions.OnUserPermissionChangeStorage_Register(p.OnUserPermissionChange)
 	permissions.OnUserGroupChangeStorage_Register(p.OnUserGroupChange)
 	permissions.OnUserCookieChangeStorage_Register(p.OnUserCookieChange)
+	permissions.OnUserImmunityChangeStorage_Register(p.OnUserImmunityChange)
 
 	permissions.OnPermissionExpiration_Register(p.OnPermissionExpiration)
 	permissions.OnGroupExpiration_Register(p.OnGroupExpiration)
@@ -599,6 +600,27 @@ func (p *PermissionsStoragePlugin) OnGroupOptionChange(pluginID int64, groupName
 		return false
 	}
 	//}()
+
+	return true
+}
+
+func (p *PermissionsStoragePlugin) OnUserImmunityChange(pluginID int64, targetID uint64, immunity int32) bool {
+	if pluginID == p.PluginID {
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(p.Plugin.Context(), contextTimeout)
+	defer cancel()
+
+	if err := p.storage.WaitReady(ctx); err != nil {
+		p.log.Errorf("Aborting UserImmunityChange [ %v | immunity: %d ], DB not ready: %v", targetID, immunity, err)
+		return false
+	}
+
+	if err := p.storage.SetImmunity(ctx, targetID, immunity); err != nil {
+		p.log.Errorf("Failed to set immunity: %v", err)
+		return false
+	}
 
 	return true
 }

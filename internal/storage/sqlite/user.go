@@ -198,6 +198,18 @@ func (s *Storage) SetCookie(userID model.UserID, key string, value any) {
 	})
 }
 
+func (s *Storage) SetImmunity(ctx context.Context, userID model.UserID, immunity int32) error {
+	query := `INSERT INTO users (steamid64, immunity) VALUES (?, ?)
+			  ON CONFLICT (steamid64) DO UPDATE SET immunity = excluded.immunity`
+
+	_, err := s.db.ExecContext(ctx, query, userID, immunity)
+	if err != nil {
+		return fmt.Errorf("could not set immunity: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) ([]model.UserGroup, error) {
 	query := `
 		SELECT

@@ -207,6 +207,18 @@ func (s *Storage) addUser(ctx context.Context, tx *sql.Tx, UserID model.UserID, 
 	return nil
 }
 
+func (s *Storage) SetImmunity(ctx context.Context, userID model.UserID, immunity int32) error {
+	query := `INSERT INTO users (steamid64, immunity) VALUES (?, ?)
+			  ON DUPLICATE KEY UPDATE immunity = VALUES(immunity), lastvisit_at = lastvisit_at`
+
+	_, err := s.db.ExecContext(ctx, query, userID, immunity)
+	if err != nil {
+		return fmt.Errorf("could not set immunity: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Storage) loadUserGroups(ctx context.Context, tx *sql.Tx, serverID int, UserID model.UserID) ([]model.UserGroup, error) {
 	query := `
 		SELECT

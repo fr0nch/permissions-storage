@@ -30,6 +30,7 @@ type User interface {
 	AddUserGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error
 	RemoveUserGroup(ctx context.Context, userID model.UserID, group *model.UserGroup) error
 	SetCookie(userID model.UserID, key string, value any)
+	SetImmunity(ctx context.Context, userID model.UserID, immunity int32) error
 }
 
 type Group interface {
