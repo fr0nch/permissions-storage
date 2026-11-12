@@ -86,9 +86,7 @@ func fileDSN(dsn url.URL) string {
 	setDefault("_busy_timeout", "5000")
 	setDefault("_txlock", "immediate")
 
-	u := url.URL{Scheme: "file", Path: dsn.Path, RawQuery: params.Encode()}
-
-	return u.String()
+	return dsn.Path + "?" + params.Encode()
 }
 
 func (s *Storage) WaitReady(ctx context.Context) error {
