@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/fr0nch/permissions-storage/compare/v1.0.1...v1.0.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* open sqlite database by path on windows ([afe37c9](https://github.com/fr0nch/permissions-storage/commit/afe37c95cf075379c0fa476d57351075c1886623))
+
 ## [1.0.1](https://github.com/fr0nch/permissions-storage/compare/v1.0.0...v1.0.1) (2026-11-11)
 
 
