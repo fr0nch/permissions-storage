@@ -40,7 +40,7 @@ func (p *PermissionsStoragePlugin) OnUserRequest(pluginID int64, targetID uint64
 		return false
 	}
 
-	user, err := p.storage.LoadUser(ctx, targetID, username)
+	user, err := p.storage.LoadUser(ctx, targetID, username, offline)
 	if err != nil {
 		p.log.Errorf("Error loading user: %v", err)
 		return false

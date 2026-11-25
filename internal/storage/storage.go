@@ -23,7 +23,7 @@ type Storage interface {
 }
 
 type User interface {
-	LoadUser(ctx context.Context, userID model.UserID, username string) (user *model.User, err error)
+	LoadUser(ctx context.Context, userID model.UserID, username string, offline bool) (user *model.User, err error)
 	//RemoveUser(ctx context.Context, user *model.User) error
 	AddUserPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission, wildcard bool) error
 	RemoveUserPermission(ctx context.Context, userID model.UserID, permission *model.UserPermission) error

@@ -20,7 +20,7 @@ type Cookie struct {
 	value  any
 }
 
-func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username string) (*model.User, error) {
+func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username string, offline bool) (*model.User, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -28,20 +28,41 @@ func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username st
 
 	defer tx.Rollback()
 
-	query := `
-		INSERT INTO users (steamid64, name, immunity, lastvisit_at)
-		VALUES ($1, $2, 0, $3)
-		ON CONFLICT (steamid64) DO UPDATE SET
-			name = EXCLUDED.name,
-			lastvisit_at = EXCLUDED.lastvisit_at
-		RETURNING immunity
-	`
-
 	user := new(model.User{UserID: UserID, Name: username})
 
-	row := tx.QueryRowContext(ctx, query, UserID, username, time.Now())
-	if err = row.Scan(&user.Immunity); err != nil {
-		return nil, fmt.Errorf("failed to load user: %w", err)
+	if offline {
+		var storedName sql.NullString
+		err = tx.QueryRowContext(ctx, `SELECT name, immunity FROM users WHERE steamid64 = $1`, UserID).Scan(&storedName, &user.Immunity)
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, err = tx.ExecContext(
+				ctx,
+				`INSERT INTO users (steamid64, name, immunity, lastvisit_at) VALUES ($1, $2, 0, $3) ON CONFLICT (steamid64) DO NOTHING`,
+				UserID, username, time.Now(),
+			); err != nil {
+				return nil, fmt.Errorf("failed to insert offline user: %w", err)
+			}
+			err = tx.QueryRowContext(ctx, `SELECT name, immunity FROM users WHERE steamid64 = $1`, UserID).Scan(&storedName, &user.Immunity)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to load user: %w", err)
+		}
+		if storedName.Valid {
+			user.Name = storedName.String
+		}
+	} else {
+		query := `
+			INSERT INTO users (steamid64, name, immunity, lastvisit_at)
+			VALUES ($1, $2, 0, $3)
+			ON CONFLICT (steamid64) DO UPDATE SET
+				name = EXCLUDED.name,
+				lastvisit_at = EXCLUDED.lastvisit_at
+			RETURNING immunity
+		`
+
+		row := tx.QueryRowContext(ctx, query, UserID, username, time.Now())
+		if err = row.Scan(&user.Immunity); err != nil {
+			return nil, fmt.Errorf("failed to load user: %w", err)
+		}
 	}
 
 	user.Groups, err = s.loadUserGroups(ctx, tx, s.settings.ServerID, UserID)
