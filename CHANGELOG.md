@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/fr0nch/permissions-storage/compare/v1.0.2...v1.0.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* preserve stored name and lastvisit_at on offline user loads ([#6](https://github.com/fr0nch/permissions-storage/issues/6)) ([5f34def](https://github.com/fr0nch/permissions-storage/commit/5f34def8ccbcbb7575e8d54bc779eaf26499343c))
+
 ## [1.0.2](https://github.com/fr0nch/permissions-storage/compare/v1.0.1...v1.0.2) (2026-11-12)
 
 
