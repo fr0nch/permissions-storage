@@ -28,41 +28,37 @@ func (s *Storage) LoadUser(ctx context.Context, UserID model.UserID, username st
 
 	defer tx.Rollback()
 
-	user := new(model.User{UserID: UserID, Name: username})
+	query := `
+		INSERT INTO users (steamid64, name, immunity, lastvisit_at)
+		VALUES (?, ?, 0, ?)
+		ON DUPLICATE KEY UPDATE
+			name = VALUES(name),
+			lastvisit_at = VALUES(lastvisit_at)
+		RETURNING immunity
+	`
+	args := []any{UserID, username, time.Now()}
 
 	if offline {
-		var storedName sql.NullString
-		err = tx.QueryRowContext(ctx, `SELECT name, immunity FROM users WHERE steamid64 = ?`, UserID).Scan(&storedName, &user.Immunity)
-		if errors.Is(err, sql.ErrNoRows) {
-			if _, err = tx.ExecContext(
-				ctx,
-				`INSERT IGNORE INTO users (steamid64, name, immunity, lastvisit_at) VALUES (?, ?, 0, ?)`,
-				UserID, username, time.Now(),
-			); err != nil {
-				return nil, fmt.Errorf("failed to insert offline user: %w", err)
-			}
-			err = tx.QueryRowContext(ctx, `SELECT name, immunity FROM users WHERE steamid64 = ?`, UserID).Scan(&storedName, &user.Immunity)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to load user: %w", err)
-		}
-		if storedName.Valid {
-			user.Name = storedName.String
-		}
-	} else {
-		query := `
+		insertQuery := `
 			INSERT INTO users (steamid64, name, immunity, lastvisit_at)
 			VALUES (?, ?, 0, ?)
-			ON DUPLICATE KEY UPDATE
-				name = VALUES(name),
-				lastvisit_at = VALUES(lastvisit_at)
-			RETURNING immunity
+			ON DUPLICATE KEY UPDATE steamid64 = steamid64
 		`
 
-		row := tx.QueryRowContext(ctx, query, UserID, username, time.Now())
-		if err = row.Scan(&user.Immunity); err != nil {
-			return nil, fmt.Errorf("failed to load user: %w", err)
+		_, err = tx.ExecContext(ctx, insertQuery, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert offline user: %w", err)
 		}
+
+		query = `SELECT immunity FROM users WHERE steamid64 = ?`
+		args = []any{UserID}
+	}
+
+	user := new(model.User{UserID: UserID, Name: username})
+
+	row := tx.QueryRowContext(ctx, query, args...)
+	if err = row.Scan(&user.Immunity); err != nil {
+		return nil, fmt.Errorf("failed to load user: %w", err)
 	}
 
 	user.Groups, err = s.loadUserGroups(ctx, tx, s.settings.ServerID, UserID)
